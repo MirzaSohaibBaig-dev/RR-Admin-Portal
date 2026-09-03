@@ -63,10 +63,13 @@ app.use('/api/drivers', driverRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/assignments', assignmentRoutes);
 
+import adminPasswordResetRoutes from './routes/adminPasswordResetRoutes.js';
+
 // New Admin Panel Verification API Routes
 app.use('/admin/auth', adminAuthRoutes);
 app.use('/admin/driver', adminDriverRoutes);
 app.use('/admin/vehicle', adminVehicleRoutes);
+app.use('/admin/password-resets', adminPasswordResetRoutes);
 
 // Error Handling Middlewares
 app.use(notFoundHandler);

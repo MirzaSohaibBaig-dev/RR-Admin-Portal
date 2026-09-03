@@ -5,6 +5,7 @@ import DriverApproval from './pages/DriverApproval';
 import RideDispatch from './pages/RideDispatch';
 import RidePool from './pages/RidePool';
 import PendingRides from './pages/PendingRides';
+import PasswordResetRequests from './pages/PasswordResetRequests';
 import AuthPage from './pages/AuthPage';
 import './App.css';
 
@@ -43,6 +44,7 @@ function App() {
         <Route path="/" element={<AdminLayout user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} />}>
           <Route index element={<Navigate to="/pending-rides" replace />} />
           <Route path="driver-approval" element={<DriverApproval />} />
+          <Route path="password-resets" element={<PasswordResetRequests />} />
           <Route path="driver-selection" element={<RideDispatch />} />
           <Route path="ride-pool" element={<RidePool />} />
           <Route path="pending-rides" element={<PendingRides />} />
