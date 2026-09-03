@@ -1,0 +1,267 @@
+{
+  "info": {
+    "name": "R&R Dispatcher Admin Portal API",
+    "description": "Complete collection of APIs for Driver Approval, Ride Dispatch, Ride Pool, and Pending Rides Monitor.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Drivers",
+      "item": [
+        {
+          "name": "Get Drivers (with status=PENDING)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/drivers?status=PENDING&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers"],
+              "query": [
+                { "key": "status", "value": "PENDING" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Driver Stats (KPI)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/drivers/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Available Drivers for Ride",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/drivers/available?rideLocation=Islamabad&vehicleType=Sedan&ac=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers", "available"],
+              "query": [
+                { "key": "rideLocation", "value": "Islamabad" },
+                { "key": "vehicleType", "value": "Sedan" },
+                { "key": "ac", "value": "true" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Driver By ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/drivers/DRV-1001",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers", "DRV-1001"]
+            }
+          }
+        },
+        {
+          "name": "Create Driver (Manual/App)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tariq Mehmood\",\n  \"email\": \"tariq.mehmood@gmail.com\",\n  \"phone\": \"+92 301 7766554\",\n  \"vehicleType\": \"Sedan\",\n  \"source\": \"MANUAL\",\n  \"city\": \"Lahore\",\n  \"vehicleDetails\": {\n    \"make\": \"Honda\",\n    \"model\": \"City 1.5\",\n    \"year\": \"2023\",\n    \"color\": \"Taffeta White\",\n    \"plateNumber\": \"LE-23-4567\",\n    \"category\": \"Sedan\",\n    \"ac\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/drivers",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers"]
+            }
+          }
+        },
+        {
+          "name": "Approve Driver",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/drivers/DRV-1004/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers", "DRV-1004", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Reject Driver",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Invalid CNIC or driving license document\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/drivers/DRV-1005/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["drivers", "DRV-1005", "reject"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Requests (Rides)",
+      "item": [
+        {
+          "name": "Get Requests (status=PENDING)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests?status=PENDING&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests"],
+              "query": [
+                { "key": "status", "value": "PENDING" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Pending Rides Queue (Screen 4 Monitor)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests/pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "pending"]
+            }
+          }
+        },
+        {
+          "name": "Get Ride Stats (KPI)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Request By ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests/PR-8001",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "PR-8001"]
+            }
+          }
+        },
+        {
+          "name": "Create Ride Request (Admin Manual)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Ayesha Tariq\",\n  \"pickupLocation\": \"Islamabad F-10\",\n  \"dropLocation\": \"Lahore Gulberg\",\n  \"fare\": \"Rs. 11,500\",\n  \"date\": \"30/08/2026 10:00 AM\",\n  \"timeToLeave\": \"10:00 AM\",\n  \"timeToReach\": \"02:30 PM\",\n  \"seatsNeeded\": 1,\n  \"vehiclePreference\": \"Executive\",\n  \"acRequired\": true,\n  \"oneWay\": true,\n  \"publishToPool\": true,\n  \"source\": \"MANUAL\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests"]
+            }
+          }
+        },
+        {
+          "name": "Update Ride Request",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fare\": \"Rs. 13,000\",\n  \"notes\": \"Updated pickup address to Sector G-11/3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/requests/PR-8001",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "PR-8001"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Ride Visibility (VISIBLE/HIDDEN)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"visibility\": \"HIDDEN\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/requests/POOL-9001/visibility",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "POOL-9001", "visibility"]
+            }
+          }
+        },
+        {
+          "name": "Get Driver Requests / Bids For Ride",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/requests/POOL-9001/driver-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["requests", "POOL-9001", "driver-requests"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Assignments",
+      "item": [
+        {
+          "name": "Create Assignment (Dispatch Driver)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"PR-8001\",\n  \"driverId\": \"DRV-1001\",\n  \"remarks\": \"Assigned manually by dispatcher via Ride Dispatch screen\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/assignments",
+              "host": ["{{baseUrl}}"],
+              "path": ["assignments"]
+            }
+          }
+        },
+        {
+          "name": "Get All Assignments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/assignments?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["assignments"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
