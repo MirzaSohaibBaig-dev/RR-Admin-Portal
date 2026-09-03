@@ -1,9 +1,10 @@
 import PasswordResetRequest from '../models/PasswordResetRequest.js';
+import Driver from '../models/Driver.js';
 import { sendSuccess, sendError } from '../middleware/responseHandler.js';
 
 /**
  * GET /admin/password-resets/pending
- * Fetch pending password reset requests
+ * Fetch pending password reset requests with enriched driver/customer names
  */
 export const getPendingPasswordResets = async (req, res) => {
   try {
@@ -11,42 +12,45 @@ export const getPendingPasswordResets = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // If database is empty, provide default mock requests for instant testing
-    if (!requests || requests.length === 0) {
-      const mockCount = await PasswordResetRequest.countDocuments();
-      if (mockCount === 0) {
-        const seeded = await PasswordResetRequest.insertMany([
-          {
-            email: 'customer@example.com',
-            userType: 'Customer',
-            status: 'Pending',
-            createdAt: new Date()
-          },
-          {
-            email: 'salma.driver@rrdispatcher.com',
-            userType: 'Driver',
-            status: 'Pending',
-            createdAt: new Date(Date.now() - 3600000)
-          },
-          {
-            email: 'kamran.khan@gmail.com',
-            userType: 'Customer',
-            status: 'Pending',
-            createdAt: new Date(Date.now() - 7200000)
+    const enriched = await Promise.all(requests.map(async (r) => {
+      let name = r.name || r.userName || '';
+      let phone = r.phoneNumber || r.phone || '';
+      let email = r.email || '';
+
+      if (r.driver) {
+        try {
+          const d = await Driver.findById(r.driver).select('Name PhoneNumber Email').lean();
+          if (d) {
+            name = d.Name || name;
+            phone = d.PhoneNumber || phone;
+            email = d.Email || email;
           }
-        ]);
-        return res.status(200).json({
-          success: true,
-          count: seeded.length,
-          requests: seeded
-        });
+        } catch (e) {}
+      } else if (r.phoneNumber || r.email) {
+        try {
+          const query = r.phoneNumber ? { PhoneNumber: r.phoneNumber } : { Email: r.email };
+          const d = await Driver.findOne(query).select('Name PhoneNumber Email').lean();
+          if (d) {
+            name = d.Name || name;
+            phone = d.PhoneNumber || phone;
+            email = d.Email || email;
+          }
+        } catch (e) {}
       }
-    }
+
+      return {
+        ...r,
+        name: name || (r.userType === 'Driver' ? 'Driver Account' : 'Customer Account'),
+        phone: phone || (r.email && !r.email.includes('@') ? r.email : ''),
+        email: email || r.email || phone,
+        userType: r.userType || (r.driver ? 'Driver' : 'Customer')
+      };
+    }));
 
     return res.status(200).json({
       success: true,
-      count: requests.length,
-      requests
+      count: enriched.length,
+      requests: enriched
     });
   } catch (err) {
     console.error('[PasswordResetController] Error fetching pending:', err.message);
@@ -101,7 +105,6 @@ export const updatePasswordResetStatus = async (req, res) => {
     resetReq.status = status;
     if (remarks) resetReq.adminRemarks = remarks;
     if (status === 'Approved') {
-      // Generate standard mock reset token for app handoff
       resetReq.token = `RST-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     }
 

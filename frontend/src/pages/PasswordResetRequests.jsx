@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   KeyRound, CheckCircle, XCircle, Clock, Search, Filter, 
-  User, ShieldCheck, Mail, ArrowRight, RotateCw, AlertTriangle, Sparkles 
+  User, ShieldCheck, Mail, Phone, ArrowRight, RotateCw, AlertTriangle, Sparkles 
 } from 'lucide-react';
 import { BACKEND_URL } from '../utils/api';
 import './PasswordResetRequests.css';
@@ -27,24 +27,6 @@ const PasswordResetRequests = () => {
       
       if (data.success && Array.isArray(data.requests)) {
         setRequests(data.requests);
-      } else {
-        // Fallback demo items if backend starts fresh
-        setRequests([
-          {
-            _id: 'pr-101',
-            email: 'customer@example.com',
-            userType: 'Customer',
-            status: 'Pending',
-            createdAt: new Date().toISOString()
-          },
-          {
-            _id: 'pr-102',
-            email: 'salma.driver@rrdispatcher.com',
-            userType: 'Driver',
-            status: 'Pending',
-            createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString()
-          }
-        ]);
       }
     } catch (err) {
       console.error('Failed to fetch password reset requests:', err);
@@ -63,12 +45,12 @@ const PasswordResetRequests = () => {
   };
 
   // Handle Approve or Reject
-  const handleStatusUpdate = async (id, newStatus, userEmail) => {
+  const handleStatusUpdate = async (id, newStatus, userIdentifier) => {
     try {
       setProcessingId(id);
       const token = localStorage.getItem('admin_token');
       
-      const res = await fetch(`${BACKEND_URL}/admin/password-resets/${id}/status`, {
+      await fetch(`${BACKEND_URL}/admin/password-resets/${id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -81,9 +63,9 @@ const PasswordResetRequests = () => {
       setRequests(prev => prev.map(r => r._id === id ? { ...r, status: newStatus } : r));
 
       if (newStatus === 'Approved') {
-        showToast(`✓ Password reset approved for ${userEmail}. Mobile app has been authorized.`);
+        showToast(`✓ Password reset approved for ${userIdentifier}. Mobile app has been authorized.`);
       } else {
-        showToast(`✗ Password reset rejected for ${userEmail}.`);
+        showToast(`✗ Password reset rejected for ${userIdentifier}.`);
       }
     } catch (err) {
       console.error(`Failed to update status to ${newStatus}:`, err);
@@ -110,9 +92,11 @@ const PasswordResetRequests = () => {
       // Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const name = (r.name || '').toLowerCase();
         const email = (r.email || '').toLowerCase();
+        const phone = (r.phone || r.phoneNumber || '').toLowerCase();
         const type = (r.userType || '').toLowerCase();
-        if (!email.includes(q) && !type.includes(q)) return false;
+        if (!name.includes(q) && !email.includes(q) && !phone.includes(q) && !type.includes(q)) return false;
       }
 
       return true;
@@ -153,14 +137,14 @@ const PasswordResetRequests = () => {
             Verify and approve customer or driver password reset submissions from the mobile apps.
           </p>
         </div>
-        <button className="outline-btn" onClick={fetchRequests} title="Refresh requests">
-          <RotateCw size={15} className={loading ? 'spin' : ''} />
+        <button className="refresh-action-btn" onClick={fetchRequests} title="Refresh requests">
+          <RotateCw size={14} className={loading ? 'spin' : ''} />
           <span>Refresh</span>
         </button>
       </div>
 
-      {/* KPI Cards Row */}
-      <div className="kpi-grid mb-4">
+      {/* KPI Cards Row (Matching Driver Approval Style exactly) */}
+      <div className="driver-kpi-grid">
         <div 
           className={`driver-kpi-card ${activeTab === 'Pending' ? 'active' : ''}`} 
           onClick={() => setActiveTab('Pending')}
@@ -249,7 +233,7 @@ const PasswordResetRequests = () => {
             <Search size={16} className="search-icon" />
             <input 
               type="text" 
-              placeholder="Search by user email or type..."
+              placeholder="Search by driver name, phone number, or email..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
@@ -263,8 +247,8 @@ const PasswordResetRequests = () => {
               className="filter-select"
             >
               <option value="All">All User Types</option>
-              <option value="Customer">Customer</option>
               <option value="Driver">Driver</option>
+              <option value="Customer">Customer</option>
             </select>
           </div>
         </div>
@@ -281,7 +265,7 @@ const PasswordResetRequests = () => {
             </colgroup>
             <thead>
               <tr>
-                <th>User Email</th>
+                <th>Driver / User Details</th>
                 <th>User Type</th>
                 <th>Date Requested</th>
                 <th>Status</th>
@@ -302,20 +286,24 @@ const PasswordResetRequests = () => {
                   const isApproved = req.status === 'Approved';
                   const isRejected = req.status === 'Rejected';
                   const isCustomer = req.userType === 'Customer' || (!req.driver && req.userType !== 'Driver');
-                  const userDisplay = req.email || req.phoneNumber || 'User';
-                  const userInitial = userDisplay.charAt(0).toUpperCase();
+                  
+                  // Display real name + clean phone/email
+                  const displayName = req.name || (isCustomer ? 'Customer User' : 'Driver Partner');
+                  const contactInfo = req.phone || req.phoneNumber || req.email || 'N/A';
 
                   return (
                     <tr key={req._id}>
                       <td>
-                        <div className="user-email-cell">
-                          <div className={`user-avatar-initial ${isCustomer ? 'customer-avatar' : 'driver-avatar'}`}>
-                            {userInitial}
+                        <div className="user-details-cell">
+                          <div className="user-primary-name">{displayName}</div>
+                          <div className="user-contact-text">
+                            {contactInfo.includes('@') ? (
+                              <span><Mail size={12} className="contact-icon" /> {contactInfo}</span>
+                            ) : (
+                              <span><Phone size={12} className="contact-icon" /> {contactInfo}</span>
+                            )}
                           </div>
-                          <div>
-                            <span className="user-email-text">{userDisplay}</span>
-                            <span className="user-req-id text-xs text-secondary">ID: {req._id.substring(0, 8)}...</span>
-                          </div>
+                          <div className="user-req-id text-xs text-secondary">ID: {req._id.substring(0, 8)}...</div>
                         </div>
                       </td>
                       <td>
@@ -327,7 +315,7 @@ const PasswordResetRequests = () => {
                       <td>
                         <div className="date-cell">
                           <Clock size={13} className="text-secondary" />
-                          <span>{formatDate(req.createdAt)}</span>
+                          <span>{formatDate(req.createdAt || req.requestedAt)}</span>
                         </div>
                       </td>
                       <td>
@@ -341,21 +329,21 @@ const PasswordResetRequests = () => {
                             <button 
                               className="approve-action-btn"
                               disabled={processingId === req._id}
-                              onClick={() => handleStatusUpdate(req._id, 'Approved', req.email)}
+                              onClick={() => handleStatusUpdate(req._id, 'Approved', displayName)}
                             >
                               <CheckCircle size={14} /> Approve
                             </button>
                             <button 
                               className="reject-action-btn"
                               disabled={processingId === req._id}
-                              onClick={() => handleStatusUpdate(req._id, 'Rejected', req.email)}
+                              onClick={() => handleStatusUpdate(req._id, 'Rejected', displayName)}
                             >
                               <XCircle size={14} /> Reject
                             </button>
                           </div>
                         ) : (
                           <span className="text-xs text-secondary font-semibold">
-                            {isApproved ? '✓ Authorized & Token Sent' : '✗ Request Dismissed'}
+                            {isApproved ? '✓ Authorized' : '✗ Rejected'}
                           </span>
                         )}
                       </td>
