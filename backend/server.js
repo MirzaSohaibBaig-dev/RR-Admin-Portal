@@ -72,7 +72,17 @@ app.use('/admin/vehicle', adminVehicleRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start Server
+// Serverless database connector middleware
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+  } catch (e) {
+    console.error('[DB] Serverless connection error:', e);
+  }
+  next();
+});
+
+// Start Server (Local vs Serverless)
 const startServer = async () => {
   try {
     await connectDB();
@@ -90,17 +100,18 @@ const startServer = async () => {
       console.log('[Server] Default Admin created (admin@example.com / yourpassword)');
     }
 
-    app.listen(PORT, () => {
-      console.log('====================================================');
-      console.log(`🚀 R&R Dispatcher Backend running on: http://localhost:${PORT}`);
-      console.log(`📡 Driver APIs:      http://localhost:${PORT}/api/drivers`);
-      console.log(`📡 Request APIs:     http://localhost:${PORT}/api/requests`);
-      console.log(`📡 Assignment APIs:  http://localhost:${PORT}/api/assignments`);
-      console.log('====================================================');
-    });
+    if (process.env.VERCEL !== '1' && !process.env.NOW_REGION) {
+      app.listen(PORT, () => {
+        console.log('====================================================');
+        console.log(`🚀 R&R Dispatcher Backend running on: http://localhost:${PORT}`);
+        console.log(`📡 Driver APIs:      http://localhost:${PORT}/api/drivers`);
+        console.log(`📡 Request APIs:     http://localhost:${PORT}/api/requests`);
+        console.log(`📡 Assignment APIs:  http://localhost:${PORT}/api/assignments`);
+        console.log('====================================================');
+      });
+    }
   } catch (err) {
     console.error('[Server] Fatal error starting server:', err.message);
-    process.exit(1);
   }
 };
 

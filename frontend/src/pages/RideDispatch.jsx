@@ -4,6 +4,7 @@ import {
   User, Phone, Calendar, DollarSign, Sparkles, X, Eye, ThumbsUp, ShieldCheck, ArrowRight, RotateCcw
 } from 'lucide-react';
 import LocationAutocomplete from '../components/LocationAutocomplete';
+import { BACKEND_URL } from '../utils/api';
 import './RideDispatch.css';
 
 const formatRouteString = (rt) => {
@@ -42,8 +43,8 @@ const RideDispatch = () => {
     try {
       setLoading(true);
       const [reqRes, drvRes] = await Promise.all([
-        fetch('http://localhost:5000/api/requests'),
-        fetch('http://localhost:5000/admin/driver', {
+        fetch(`${BACKEND_URL}/api/requests`),
+        fetch(`${BACKEND_URL}/admin/driver`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` }
         })
       ]);
@@ -148,7 +149,7 @@ const RideDispatch = () => {
     const driverName = driver.personalInfo.name;
 
     try {
-      await fetch('http://localhost:5000/api/assignments', {
+      await fetch(`${BACKEND_URL}/api/assignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

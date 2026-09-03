@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import AddDriverForm from '../components/AddDriverForm';
 import EditDriverModal from '../components/EditDriverModal';
+import { BACKEND_URL } from '../utils/api';
 import './DriverApproval.css';
 
 const DriverApproval = () => {
@@ -127,7 +128,7 @@ const DriverApproval = () => {
   const fetchDrivers = async () => {
     try {
       const token = localStorage.getItem('admin_token');
-      const res = await fetch('http://localhost:5000/admin/driver', {
+      const res = await fetch(`${BACKEND_URL}/admin/driver`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -312,7 +313,7 @@ const DriverApproval = () => {
       const token = localStorage.getItem('admin_token');
       const newStatus = action === 'approve' ? 'Verified' : 'Rejected';
       
-      await fetch(`http://localhost:5000/admin/driver/${_id}/verification`, {
+      await fetch(`${BACKEND_URL}/admin/driver/${_id}/verification`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -1061,7 +1062,7 @@ const DriverApproval = () => {
             
             try {
               // Hit the public register endpoint
-              await fetch('http://localhost:5000/api/drivers', {
+              await fetch(`${BACKEND_URL}/api/drivers`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Save, User, Car, MapPin, Shield, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import LocationAutocomplete from './LocationAutocomplete';
+import { BACKEND_URL } from '../utils/api';
 import './EditDriverModal.css';
 
 const formatRouteString = (rt) => {
@@ -92,7 +93,7 @@ const EditDriverModal = ({ driver, onClose, onSuccess }) => {
         }
       };
 
-      const res = await fetch(`http://localhost:5000/admin/driver/${driver._id || driver.id}`, {
+      const res = await fetch(`${BACKEND_URL}/admin/driver/${driver._id || driver.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
