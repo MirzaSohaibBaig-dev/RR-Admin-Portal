@@ -301,17 +301,19 @@ const PasswordResetRequests = () => {
                   const isPending = req.status === 'Pending';
                   const isApproved = req.status === 'Approved';
                   const isRejected = req.status === 'Rejected';
-                  const isCustomer = req.userType === 'Customer';
+                  const isCustomer = req.userType === 'Customer' || (!req.driver && req.userType !== 'Driver');
+                  const userDisplay = req.email || req.phoneNumber || 'User';
+                  const userInitial = userDisplay.charAt(0).toUpperCase();
 
                   return (
                     <tr key={req._id}>
                       <td>
                         <div className="user-email-cell">
                           <div className={`user-avatar-initial ${isCustomer ? 'customer-avatar' : 'driver-avatar'}`}>
-                            {req.email.charAt(0).toUpperCase()}
+                            {userInitial}
                           </div>
                           <div>
-                            <span className="user-email-text">{req.email}</span>
+                            <span className="user-email-text">{userDisplay}</span>
                             <span className="user-req-id text-xs text-secondary">ID: {req._id.substring(0, 8)}...</span>
                           </div>
                         </div>
@@ -319,7 +321,7 @@ const PasswordResetRequests = () => {
                       <td>
                         <span className={`user-type-badge ${isCustomer ? 'type-customer' : 'type-driver'}`}>
                           {isCustomer ? <User size={12} /> : <ShieldCheck size={12} />}
-                          {req.userType || 'Customer'}
+                          {isCustomer ? 'Customer' : 'Driver'}
                         </span>
                       </td>
                       <td>
