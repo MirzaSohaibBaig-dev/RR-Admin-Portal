@@ -3,6 +3,7 @@ import {
   Plus, Edit2, Trash2, Eye, EyeOff, Users, CheckCircle, XCircle, X, Search, Filter, Car, User, MapPin, Clock, Calendar, ChevronLeft, Sparkles
 } from 'lucide-react';
 import LocationAutocomplete from '../components/LocationAutocomplete';
+import { BACKEND_URL } from '../utils/api';
 import './RidePool.css';
 
 const VEHICLE_MAX_SEATS = {
@@ -57,7 +58,7 @@ const RidePool = () => {
 
   const fetchRides = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/requests');
+      const res = await fetch(`${BACKEND_URL}/api/requests`);
       const data = await res.json();
       if (data.success && data.data?.requests) {
         const mapped = data.data.requests.map(r => {
@@ -112,7 +113,7 @@ const RidePool = () => {
     const newVisibility = newStatus === 'Visible' ? 'VISIBLE' : 'HIDDEN';
 
     try {
-      await fetch(`http://localhost:5000/api/requests/${id}/visibility`, {
+      await fetch(`${BACKEND_URL}/api/requests/${id}/visibility`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visibility: newVisibility })
@@ -199,7 +200,7 @@ const RidePool = () => {
         });
         showToast(`✓ Pool "${finalPoolName}" updated successfully!`);
       } else {
-        await fetch('http://localhost:5000/api/requests', {
+        await fetch(`${BACKEND_URL}/api/requests`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
