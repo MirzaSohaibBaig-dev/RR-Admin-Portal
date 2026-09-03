@@ -4,6 +4,7 @@ import {
   Car, User, Settings2, AlertTriangle, ChevronDown, ChevronUp, 
   X, ShieldAlert, UserPlus, Check, RefreshCw
 } from 'lucide-react';
+import { BACKEND_URL } from '../utils/api';
 import './PendingRides.css';
 
 const STATUS_FILTERS = [
@@ -34,7 +35,7 @@ const PendingRides = () => {
 
   const fetchPendingRides = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/requests/pending');
+      const res = await fetch(`${BACKEND_URL}/api/requests/pending`);
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
         const mapped = data.data.map(r => ({
