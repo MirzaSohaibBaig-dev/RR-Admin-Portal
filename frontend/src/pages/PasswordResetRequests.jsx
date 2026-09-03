@@ -15,12 +15,12 @@ const PasswordResetRequests = () => {
   const [toastMessage, setToastMessage] = useState('');
   const [processingId, setProcessingId] = useState(null);
 
-  // Fetch pending password reset requests from backend
+  // Fetch password reset requests from backend
   const fetchRequests = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('admin_token');
-      const res = await fetch(`${BACKEND_URL}/admin/password-resets/pending`, {
+      const res = await fetch(`${BACKEND_URL}/admin/password-resets`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
