@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import AddDriverForm from '../components/AddDriverForm';
 import EditDriverModal from '../components/EditDriverModal';
+import DriverAvailability from '../components/DriverAvailability';
 import { BACKEND_URL } from '../utils/api';
 import './DriverApproval.css';
 
@@ -278,6 +279,17 @@ const DriverApproval = () => {
               totalRides: dbDriver.performance?.totalTrips || 0,
               cancellationRate: '0%'
             },
+            availabilitySchedule: (typeof dbDriver.availability === 'object' && dbDriver.availability !== null) 
+              ? dbDriver.availability 
+              : {
+                  scheduleType: 'same',
+                  specificDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+                  slots: [
+                    { id: '1', timeText: '9:00 AM - 5:00 PM', isFlexible: false, isActive: true },
+                    { id: '2', timeText: '11:00 PM - Until Next Trip', isFlexible: false, isActive: true },
+                    { id: '3', timeText: 'Flexible - Anytime After Drop-off', isFlexible: true, isActive: true }
+                  ]
+                },
             availability: dbDriver.availability || 'Available',
             preferences: {
               routes: (() => {
@@ -1004,6 +1016,9 @@ const DriverApproval = () => {
               )}
             </div>
           </div>
+
+          {/* ── Driver Availability Schedule Section ── */}
+          <DriverAvailability availability={selectedDriver.availabilitySchedule || selectedDriver.availability} />
         </div>
 
         {/* ── Action Buttons ── */}
