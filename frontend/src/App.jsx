@@ -6,6 +6,7 @@ import RideDispatch from './pages/RideDispatch';
 import RidePool from './pages/RidePool';
 import PendingRides from './pages/PendingRides';
 import PasswordResetRequests from './pages/PasswordResetRequests';
+import DriverRating from './pages/DriverRating';
 import AuthPage from './pages/AuthPage';
 import './App.css';
 
@@ -46,6 +47,7 @@ function App() {
           <Route path="driver-approval" element={<DriverApproval />} />
           <Route path="password-resets" element={<PasswordResetRequests />} />
           <Route path="driver-selection" element={<RideDispatch />} />
+          <Route path="driver-rating" element={<DriverRating />} />
           <Route path="ride-pool" element={<RidePool />} />
           <Route path="pending-rides" element={<PendingRides />} />
         </Route>

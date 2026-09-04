@@ -64,12 +64,14 @@ app.use('/api/requests', requestRoutes);
 app.use('/api/assignments', assignmentRoutes);
 
 import adminPasswordResetRoutes from './routes/adminPasswordResetRoutes.js';
+import adminDriverRatingRoutes from './routes/adminDriverRatingRoutes.js';
 
 // New Admin Panel Verification API Routes
 app.use('/admin/auth', adminAuthRoutes);
 app.use('/admin/driver', adminDriverRoutes);
 app.use('/admin/vehicle', adminVehicleRoutes);
 app.use('/admin/password-resets', adminPasswordResetRoutes);
+app.use('/admin/ratings', adminDriverRatingRoutes);
 
 // Error Handling Middlewares
 app.use(notFoundHandler);
