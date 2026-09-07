@@ -14,7 +14,31 @@ const sampleDrivers = [
     status: 'APPROVED',
     source: 'APP',
     rating: 4.9,
-    availability: 'Available',
+    liveStatus: 'Available',
+    availability: {
+      scheduleType: 'same',
+      specificDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      slots: [
+        {
+          id: '1',
+          timeText: '9:00 AM - 5:00 PM, Slot 1',
+          isFlexible: false,
+          isActive: true
+        },
+        {
+          id: '2',
+          timeText: '11:00 PM - Until Next Trip, Slot 2',
+          isFlexible: false,
+          isActive: true
+        },
+        {
+          id: '3',
+          timeText: 'Flexible - Anytime After Drop-off, Slot 3',
+          isFlexible: true,
+          isActive: true
+        }
+      ]
+    },
     city: 'Islamabad',
     preferredRoutes: ['Islamabad - Rawalpindi', 'Islamabad - Lahore', 'Islamabad - Peshawar'],
     vehicleDetails: {
@@ -48,7 +72,25 @@ const sampleDrivers = [
     status: 'APPROVED',
     source: 'APP',
     rating: 4.7,
-    availability: 'Available',
+    liveStatus: 'Available',
+    availability: {
+      scheduleType: 'different',
+      specificDays: ['Mon', 'Wed', 'Fri'],
+      slots: [
+        {
+          id: '1',
+          timeText: '8:00 AM - 4:00 PM, Slot 1',
+          isFlexible: false,
+          isActive: true
+        },
+        {
+          id: '2',
+          timeText: 'Flexible - Anytime After Drop-off, Slot 2',
+          isFlexible: true,
+          isActive: true
+        }
+      ]
+    },
     city: 'Karachi',
     preferredRoutes: ['Karachi - Hyderabad', 'Karachi - Sukkur'],
     vehicleDetails: {
@@ -197,6 +239,30 @@ const sampleRequests = [
     passengerRating: 4.9,
     distance: '375 km',
     isOverdue: false,
+    driverRequests: [
+      {
+        driverId: 'DRV-1001',
+        driverName: 'Ahmed Khan',
+        phone: '+92 300 1234567',
+        rating: 4.9,
+        vehicle: 'Honda Civic RS (Executive)',
+        routeMatch: 'Islamabad - Lahore (100% Match)',
+        matchScore: '98%',
+        proposedFare: 'Rs. 12,000',
+        timeRequested: '10 mins ago'
+      },
+      {
+        driverId: 'DRV-1005',
+        driverName: 'Hamza Farooq',
+        phone: '+92 312 3456789',
+        rating: 4.9,
+        vehicle: 'Hyundai Sonata (Executive)',
+        routeMatch: 'Islamabad - Lahore (100% Match)',
+        matchScore: '95%',
+        proposedFare: 'Rs. 11,500',
+        timeRequested: '25 mins ago'
+      }
+    ],
     notes: 'Passenger requested non-smoking driver with luggage space for 2 bags.'
   },
   {

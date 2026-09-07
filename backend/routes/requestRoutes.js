@@ -6,6 +6,7 @@ import {
   getRequestById,
   createRequest,
   updateRequest,
+  deleteRequest,
   toggleVisibility,
   getDriverRequestsForRide
 } from '../controllers/requestController.js';
@@ -24,6 +25,7 @@ router.route('/')
 // Single Request routes
 router.get('/:id', getRequestById);
 router.put('/:id', updateRequest);
+router.delete('/:id', deleteRequest);
 router.put('/:id/visibility', toggleVisibility);
 router.get('/:id/driver-requests', getDriverRequestsForRide);
 

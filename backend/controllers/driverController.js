@@ -71,7 +71,12 @@ export const getAvailableDrivers = async (req, res, next) => {
 
     const query = {
       status: 'APPROVED',
-      availability: 'Available'
+      $or: [
+        { liveStatus: 'Available' },
+        { availability: 'Available' },
+        { 'availability.slots': { $exists: true } },
+        { liveStatus: { $exists: false } }
+      ]
     };
 
     if (vehicleType && vehicleType !== 'all' && vehicleType !== 'Any') {

@@ -127,9 +127,20 @@ const RidePool = () => {
     showToast(`Ride moved to ${newStatus === 'Visible' ? 'Active Pool' : 'Drafts'}`);
   };
 
-  const handleDelete = (id) => {
-    setRides(prev => prev.filter(r => r.id !== id));
-    showToast('Ride deleted from pool');
+  const handleDelete = async (id, _id) => {
+    if (!window.confirm('Are you sure you want to remove this ride from the pool?')) return;
+    try {
+      const targetId = _id || id;
+      await fetch(`${BACKEND_URL}/api/requests/${targetId}`, {
+        method: 'DELETE'
+      });
+      showToast('✓ Ride successfully removed from pool');
+      fetchRides();
+    } catch (err) {
+      console.error('Failed to delete ride:', err);
+      setRides(prev => prev.filter(r => r.id !== id && r._id !== id));
+      showToast('Ride removed from pool');
+    }
   };
 
   const openForm = (ride = null) => {
@@ -184,7 +195,7 @@ const RidePool = () => {
 
     try {
       if (editingRide) {
-        await fetch(`http://localhost:5000/api/requests/${editingRide._id || editingRide.id}`, {
+        await fetch(`${BACKEND_URL}/api/requests/${editingRide._id || editingRide.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -230,14 +241,48 @@ const RidePool = () => {
     setIsFormOpen(false);
   };
 
-  const acceptDriver = (driverReq) => {
-    const updated = rides.map(r => 
-      r.id === viewRequestsRide.id ? 
-      { ...r, status: 'Assigned', assignedTo: `${driverReq.driverName} (${driverReq.driverId})` } 
-      : r
-    );
-    updateAndPersistRides(updated);
-    showToast(`${driverReq.driverName} has been assigned to the ride`);
+  const acceptDriver = async (driverReq) => {
+    if (!viewRequestsRide) return;
+    try {
+      const targetReqId = viewRequestsRide._id || viewRequestsRide.id;
+      // 1. Hit backend assignment API
+      const res = await fetch(`${BACKEND_URL}/api/assignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: targetReqId,
+          driverId: driverReq.driverId,
+          fare: driverReq.proposedFare || viewRequestsRide.fare,
+          notes: `Assigned via Ride Pool driver bid request (${driverReq.driverName}).`
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✓ Driver ${driverReq.driverName} successfully assigned to ride!`);
+      } else {
+        // Fallback update direct to request
+        await fetch(`${BACKEND_URL}/api/requests/${targetReqId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'Assigned',
+            assignedDriverDetails: {
+              driverCode: driverReq.driverId,
+              name: driverReq.driverName,
+              vehicle: driverReq.vehicle,
+              rating: driverReq.rating
+            }
+          })
+        });
+        showToast(`✓ ${driverReq.driverName} assigned to ride`);
+      }
+      fetchRides();
+    } catch (err) {
+      console.error('Failed to assign driver:', err);
+      setRides(prev => prev.map(r => r.id === viewRequestsRide.id ? { ...r, status: 'Assigned', assignedTo: `${driverReq.driverName} (${driverReq.driverId})` } : r));
+      showToast(`✓ ${driverReq.driverName} assigned to ride`);
+    }
     setViewRequestsRide(null);
   };
 
@@ -482,7 +527,7 @@ const RidePool = () => {
                               <Edit2 size={16} />
                             </button>
                           )}
-                          <button className="icon-btn-sm text-danger" onClick={() => handleDelete(ride.id)} title="Delete Pool">
+                          <button className="icon-btn-sm text-danger" onClick={() => handleDelete(ride.id, ride._id)} title="Delete Pool">
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -591,7 +636,7 @@ const RidePool = () => {
           </div>
 
           {/* Card 2: Route Information (LocationIQ Autocomplete) */}
-          <div className="manual-form-card mt-4">
+          <div className="manual-form-card">
             <div className="manual-card-header">
               <MapPin size={18} className="manual-section-icon" />
               <span>Route Information (Live Map Suggestions)</span>
@@ -723,7 +768,7 @@ const RidePool = () => {
           </div>
 
           {/* Card 4: Ride Requirements & Dynamic Seat Capacity Control */}
-          <div className="manual-form-card mt-4">
+          <div className="manual-form-card">
             <div className="manual-card-header">
               <Car size={18} className="manual-section-icon" />
               <span>Ride Requirements & Seat Capacity</span>
@@ -810,7 +855,7 @@ const RidePool = () => {
           </div>
 
           {/* Card 5: Publish to Driver Pool */}
-          <div className="manual-form-card publish-card mt-4">
+          <div className="manual-form-card publish-card">
             <div className="publish-card-left">
               <h4>Publish to Driver Pool</h4>
               <p>Allow verified drivers to review and bid on this ride</p>
@@ -938,8 +983,8 @@ const RidePool = () => {
       <div className="glass-panel modal-content lg">
         <div className="modal-header">
           <div>
-            <h2>Driver Requests</h2>
-            <p className="text-secondary">{viewRequestsRide.route} • {viewRequestsRide.id}</p>
+            <h2>Driver Requests / Bids</h2>
+            <p className="text-secondary">{viewRequestsRide.route} • ID: {viewRequestsRide.id}</p>
           </div>
           <button className="icon-btn" onClick={() => setViewRequestsRide(null)}><X size={20} /></button>
         </div>
@@ -955,18 +1000,26 @@ const RidePool = () => {
               {viewRequestsRide.driverRequests.map(req => (
                 <div key={req.driverId} className="request-card">
                   <div className="req-driver-info">
-                    <div className="avatar-sm">{req.driverName.charAt(0)}</div>
+                    <div className="avatar-sm">{req.driverName?.charAt(0) || 'D'}</div>
                     <div>
-                      <h4>{req.driverName} <span className="rating-badge">⭐ {req.rating}</span></h4>
-                      <p className="text-secondary">{req.vehicle}</p>
+                      <div className="d-flex align-items-center gap-2">
+                        <h4>{req.driverName}</h4>
+                        <span className="rating-badge">⭐ {req.rating || '4.9'}</span>
+                        {req.matchScore && <span className="badge bg-success-light text-success font-semibold text-xs">{req.matchScore} Match</span>}
+                      </div>
+                      <p className="text-secondary text-xs">{req.vehicle || 'Standard Vehicle'}</p>
+                      {req.routeMatch && <p className="text-xs text-primary mt-1">🛣️ {req.routeMatch}</p>}
                     </div>
                   </div>
-                  <div className="req-bid">
-                    <p className="text-secondary sm">{req.timeRequested}</p>
-                    <p className="fw-600 text-primary">{req.proposedFare}</p>
+                  <div className="req-bid text-right">
+                    <p className="text-secondary sm">{req.timeRequested || 'Just now'}</p>
+                    <p className="fw-600 text-primary">{req.proposedFare || viewRequestsRide.fare}</p>
                   </div>
                   <div className="req-action">
-                    <button className="accept-btn" onClick={() => acceptDriver(req)}>Accept</button>
+                    <button className="primary-btn sm px-3" onClick={() => acceptDriver(req)}>
+                      <CheckCircle size={14} />
+                      <span>Select & Assign</span>
+                    </button>
                   </div>
                 </div>
               ))}

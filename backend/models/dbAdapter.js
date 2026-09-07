@@ -165,6 +165,14 @@ export const RequestDB = {
     return memoryStore.requests[idx];
   },
 
+  async deleteOne(filter = {}) {
+    if (!isMemoryMode) return await RequestModel.findOneAndDelete(filter);
+    const idx = memoryStore.requests.findIndex(r => matchQuery(r, filter));
+    if (idx === -1) return null;
+    const removed = memoryStore.requests.splice(idx, 1)[0];
+    return removed;
+  },
+
   async deleteMany(filter = {}) {
     if (!isMemoryMode) return await RequestModel.deleteMany(filter);
     memoryStore.requests = [];

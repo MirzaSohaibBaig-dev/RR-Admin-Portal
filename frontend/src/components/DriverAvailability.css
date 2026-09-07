@@ -1,5 +1,5 @@
 /* ===================================================
-   Driver Availability Component Styles
+   Driver Availability Component Styles (Mobile Spec Aligned)
    =================================================== */
 
 .availability-card-wrap {
@@ -8,7 +8,7 @@
   border-radius: 12px;
   padding: 1.25rem 1.4rem;
   margin-top: 1.5rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .empty-availability-state {
@@ -22,7 +22,7 @@
   justify-content: space-between;
   padding-bottom: 0.85rem;
   border-bottom: 1px solid var(--border-color, #e2e8f0);
-  margin-bottom: 1rem;
+  margin-bottom: 1.1rem;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
@@ -41,13 +41,25 @@
 }
 
 .schedule-type-badge {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.badge-same-day {
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
-  font-size: 0.76rem;
-  font-weight: 700;
-  padding: 0.2rem 0.65rem;
-  border-radius: 20px;
+}
+
+.badge-diff-day {
+  background: #fdf2f8;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
 }
 
 .not-configured-tag {
@@ -55,112 +67,151 @@
   color: #64748b;
   font-size: 0.72rem;
   font-weight: 700;
-  padding: 0.15rem 0.55rem;
+  padding: 0.2rem 0.6rem;
   border-radius: 12px;
 }
 
 .no-availability-text {
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   color: var(--text-secondary, #64748b);
   margin: 0.5rem 0 0 0;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 /* Active Days Section */
 .availability-days-section {
-  margin-bottom: 1.15rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.days-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .section-mini-label {
   font-size: 0.72rem;
   font-weight: 800;
-  color: var(--text-secondary, #64748b);
-  letter-spacing: 0.5px;
-  display: block;
-  margin-bottom: 0.5rem;
+  color: #475569;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
 }
 
-.days-pills-row {
+.days-status-hint {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.days-circles-row {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
 }
 
-.day-status-pill {
-  display: inline-flex;
+/* Circular Day Pills - Mirrors the screenshot circular design */
+.day-circle-pill {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 20px;
-  font-size: 0.78rem;
+  justify-content: center;
+  font-size: 0.76rem;
   font-weight: 700;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: default;
+  position: relative;
 }
 
-.day-active {
+.day-circle-active {
   background: #2563eb;
-  color: white;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  color: #ffffff;
+  border: 2px solid #1d4ed8;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
 }
 
-.day-inactive {
-  background: #f1f5f9;
+.day-circle-inactive {
+  background: #ffffff;
   color: #94a3b8;
-  border: 1px solid #e2e8f0;
+  border: 1.5px solid #cbd5e1;
 }
 
-.day-check-icon {
-  color: white;
-}
-
-.day-off-dot {
-  font-size: 0.9rem;
-  line-height: 0.5;
+.active-dot {
+  width: 4px;
+  height: 4px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  margin-top: 1px;
 }
 
 /* Slots Section */
+.availability-slots-section {
+  margin-top: 0.5rem;
+}
+
 .slots-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.25rem;
 }
 
 .slots-count-pill {
   font-size: 0.72rem;
   font-weight: 700;
-  color: var(--text-secondary, #64748b);
-  background: #f1f5f9;
-  padding: 0.15rem 0.5rem;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 0.18rem 0.55rem;
   border-radius: 12px;
+}
+
+.slots-subtext {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin: 0 0 0.85rem 0;
 }
 
 .slots-grid-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.85rem;
 }
 
 .time-slot-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   background: var(--bg-secondary, #f8fafc);
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 10px;
-  padding: 0.75rem 0.95rem;
+  padding: 0.85rem 1rem;
   transition: all 0.2s ease;
+  gap: 0.5rem;
 }
 
 .time-slot-card:hover {
   border-color: #cbd5e1;
-  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
+}
+
+.slot-card-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .flexible-slot-card {
-  border-style: dashed;
-  border-color: #93c5fd;
+  border: 1.5px dashed #60a5fa;
   background: #f0f7ff;
 }
 
@@ -171,13 +222,13 @@
 .slot-card-left {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
 .slot-icon-box {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -185,13 +236,13 @@
 }
 
 .icon-standard {
-  background: #eff6ff;
+  background: #dbeafe;
   color: #2563eb;
 }
 
 .icon-flex {
-  background: #fef3c7;
-  color: #d97706;
+  background: #dbeafe;
+  color: #0284c7;
 }
 
 .slot-meta-text {
@@ -200,13 +251,13 @@
 }
 
 .slot-time-string {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--text-primary, #0f172a);
 }
 
 .slot-index-label {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   color: var(--text-secondary, #64748b);
   font-weight: 500;
 }
@@ -221,16 +272,16 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.15rem 0.45rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 4px;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
 .badge-flexible {
-  background: #fef3c7;
-  color: #b45309;
-  border: 1px solid #fde68a;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
 }
 
 .badge-active {
@@ -243,4 +294,20 @@
   background: #fee2e2;
   color: #b91c1c;
   border: 1px solid #fecaca;
+}
+
+.flex-auto-info-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  margin-top: 0.25rem;
+}
+
+.flex-info-icon {
+  min-width: 13px;
 }

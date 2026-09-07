@@ -307,3 +307,22 @@ export const getDriverRequestsForRide = async (req, res, next) => {
     next(err);
   }
 };
+
+// @desc    Delete/Cancel a ride request
+// @route   DELETE /api/requests/:id
+export const deleteRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const filter = id.match(/^[0-9a-fA-F]{24}$/) ? { _id: id } : { requestId: id };
+    
+    const existing = await RequestDB.findOne(filter);
+    if (!existing) {
+      return sendError(res, `Ride request not found with id: ${id}`, 404);
+    }
+
+    await RequestDB.deleteOne(filter);
+    return sendSuccess(res, { requestId: existing.requestId }, `Ride request ${existing.requestId} deleted successfully`);
+  } catch (err) {
+    next(err);
+  }
+};

@@ -40,7 +40,22 @@ const driverSchema = new mongoose.Schema({
   phone: { type: String },
   status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
   rating: { type: Number, default: 4.8 },
-  availability: { type: String, enum: ['Available', 'On Trip', 'Offline'], default: 'Available' },
+  availability: {
+    type: mongoose.Schema.Types.Mixed,
+    default: () => ({
+      scheduleType: 'same',
+      specificDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      slots: [
+        {
+          id: '1',
+          timeText: '9:00 AM - 5:00 PM',
+          isFlexible: false,
+          isActive: true
+        }
+      ]
+    })
+  },
+  liveStatus: { type: String, enum: ['Available', 'On Trip', 'Offline'], default: 'Available' },
   city: { type: String, default: 'Islamabad' },
   vehicleDetails: {
     make: { type: String, default: 'Toyota' },

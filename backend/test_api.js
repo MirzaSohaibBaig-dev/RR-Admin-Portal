@@ -38,10 +38,13 @@ async function runTests() {
   });
 
   // 4. Get Driver By ID
-  await test('GET /api/drivers/:id', async () => {
+  await test('GET /api/drivers/:id (Verify Availability Object)', async () => {
     const res = await fetch(`${BASE}/drivers/DRV-1001`);
     const json = await res.json();
     if (!json.success || json.data.driverId !== 'DRV-1001') throw new Error('Driver not found');
+    if (json.data.availability && typeof json.data.availability === 'object') {
+      if (!Array.isArray(json.data.availability.slots)) throw new Error('Availability slots array missing');
+    }
   });
 
   // 5. Create Driver (Manual/App)
@@ -149,6 +152,28 @@ async function runTests() {
     const res = await fetch(`${BASE}/assignments`);
     const json = await res.json();
     if (!json.success || !Array.isArray(json.data.assignments)) throw new Error('Get assignments failed');
+  });
+
+  // 15. Delete Ride Request
+  await test('DELETE /api/requests/:id (Cancel/Delete Ride)', async () => {
+    // Create temporary ride then delete it
+    const createRes = await fetch(`${BASE}/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerName: 'Temp Delete Test',
+        pickupLocation: 'Islamabad',
+        dropLocation: 'Rawalpindi',
+        status: 'Draft',
+        publishToPool: false
+      })
+    });
+    const createJson = await createRes.json();
+    const tempId = createJson.data._id || createJson.data.requestId;
+
+    const delRes = await fetch(`${BASE}/requests/${tempId}`, { method: 'DELETE' });
+    const delJson = await delRes.json();
+    if (!delJson.success) throw new Error('Delete ride failed');
   });
 
   console.log(`\n====================================`);
