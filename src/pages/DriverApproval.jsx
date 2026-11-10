@@ -17,12 +17,24 @@ const DriverApproval = () => {
   const [isAddDriverOpen, setIsAddDriverOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const showToast = (message, type = 'success', duration = 3500) => {
+    setToastMessage(message);
+    setToastType(type);
+    setTimeout(() => {
+      setToastMessage('');
+    }, duration);
+  };
+
   const [previewImage, setPreviewImage] = useState(null); // { title: '', url: '' }
   const [zoomLevel, setZoomLevel] = useState(1);
   const [rotation, setRotation] = useState(0);
   
   const [activeTab, setActiveTab] = useState('Pending');
   const [confirmApproveModal, setConfirmApproveModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Search & Multi-Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,6 +139,7 @@ const DriverApproval = () => {
 
   // Fetch Drivers from DB
   const fetchDrivers = async () => {
+    setIsLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
       const res = await fetch(`${BACKEND_URL}/admin/driver`, {
@@ -299,13 +312,18 @@ const DriverApproval = () => {
         setDrivers(mapped);
       } else {
         // If unauthorized or failed, clear local state
-        console.error("API Error:", data.message);
-        if (data.message && data.message.includes('Not authorized')) {
-           setToastMessage("Session expired. Please log out and log in again.");
+        console.error("API Error:", data?.message);
+        if (data?.message && (data.message.includes('Not authorized') || data.message.includes('token'))) {
+           showToast("Session expired. Please log out and log in again.", "error");
+        } else if (!res.ok) {
+           showToast(data?.message || "Failed to load drivers from server.", "error");
         }
       }
     } catch (err) {
       console.error("Failed to fetch drivers from API:", err);
+      showToast("Network error. Unable to reach backend server.", "error");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -313,13 +331,31 @@ const DriverApproval = () => {
     fetchDrivers();
   }, []);
 
+  // Keyboard Escape listener to close modals
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (previewImage) setPreviewImage(null);
+        if (confirmApproveModal) setConfirmApproveModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewImage, confirmApproveModal]);
+
   // Handle Approve / Reject via API
   const handleAction = async (id, _id, action) => {
+    const targetId = _id || id;
+    if (!targetId) {
+      showToast("Driver ID is missing.", "error");
+      return;
+    }
     try {
+      setActionLoading(true);
       const token = localStorage.getItem('admin_token');
       const newStatus = action === 'approve' ? 'Verified' : 'Rejected';
       
-      await fetch(`${BACKEND_URL}/admin/driver/${_id}/verification`, {
+      const res = await fetch(`${BACKEND_URL}/admin/driver/${targetId}/verification`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -328,12 +364,20 @@ const DriverApproval = () => {
         body: JSON.stringify({ verificationStatus: newStatus })
       });
       
-      setToastMessage(`Driver ${action === 'approve' ? 'approved' : 'rejected'}.`);
-      setTimeout(() => setToastMessage(''), 3000);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || `Failed to ${action} driver (${res.status})`);
+      }
+      
+      showToast(`Driver ${action === 'approve' ? 'approved' : 'rejected'} successfully!`, 'success');
       setSelectedDriver(null);
-      fetchDrivers(); // Refresh data from DB
+      await fetchDrivers(); // Refresh data from DB
     } catch (err) {
       console.error("Failed to update driver status:", err);
+      showToast(err.message || `Failed to ${action} driver. Please try again.`, 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -484,9 +528,34 @@ const DriverApproval = () => {
         </div>
 
         <div className="table-content">
-          {filteredDrivers.length === 0 ? (
+          {isLoading ? (
+            <div className="table-loading-state">
+              <div className="loading-spinner"></div>
+              <p>Loading driver applications...</p>
+            </div>
+          ) : filteredDrivers.length === 0 ? (
             <div className="empty-state">
-              <p>No {activeTab.toLowerCase()} drivers found.</p>
+              <Users size={40} className="empty-state-icon" />
+              <h4>No {activeTab} Drivers</h4>
+              <p>
+                {searchQuery || filterRoute !== 'All' || filterAC !== 'All' || filterVehicleType !== 'All'
+                  ? 'No drivers match your current search and filter criteria.'
+                  : `There are currently no drivers with ${activeTab.toLowerCase()} status.`}
+              </p>
+              {(searchQuery || filterRoute !== 'All' || filterAC !== 'All' || filterVehicleType !== 'All') && (
+                <button 
+                  type="button"
+                  className="secondary-btn btn-sm mt-3" 
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilterRoute('All');
+                    setFilterAC('All');
+                    setFilterVehicleType('All');
+                  }}
+                >
+                  <RotateCcw size={14} /> Clear All Filters
+                </button>
+              )}
             </div>
           ) : (
             <table className="clean-table">
@@ -1019,11 +1088,16 @@ const DriverApproval = () => {
         <div className="details-actions">
           {selectedDriver.status === 'Pending' && (
             <>
-              <button className="reject-btn" onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'reject')}>
-                <XCircle size={16} /> Reject Application
+              <button 
+                className="reject-btn" 
+                disabled={actionLoading}
+                onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'reject')}
+              >
+                <XCircle size={16} /> {actionLoading ? 'Processing...' : 'Reject Application'}
               </button>
               <button 
                 className="approve-btn" 
+                disabled={actionLoading}
                 onClick={() => {
                   if (selectedDriver.missingDocuments && selectedDriver.missingDocuments.length > 0) {
                     setConfirmApproveModal(true);
@@ -1032,18 +1106,26 @@ const DriverApproval = () => {
                   }
                 }}
               >
-                <CheckCircle size={16} /> Approve Driver
+                <CheckCircle size={16} /> {actionLoading ? 'Processing...' : 'Approve Driver'}
               </button>
             </>
           )}
           {selectedDriver.status === 'Approved' && (
-            <button className="reject-btn" onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'reject')}>
-              <XCircle size={16} /> Revoke / Reject Driver
+            <button 
+              className="reject-btn" 
+              disabled={actionLoading}
+              onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'reject')}
+            >
+              <XCircle size={16} /> {actionLoading ? 'Processing...' : 'Revoke / Reject Driver'}
             </button>
           )}
           {selectedDriver.status === 'Rejected' && (
-            <button className="approve-btn" onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'approve')}>
-              <CheckCircle size={16} /> Re-Approve Driver
+            <button 
+              className="approve-btn" 
+              disabled={actionLoading}
+              onClick={() => handleAction(selectedDriver.id, selectedDriver._id, 'approve')}
+            >
+              <CheckCircle size={16} /> {actionLoading ? 'Processing...' : 'Re-Approve Driver'}
             </button>
           )}
         </div>
@@ -1054,9 +1136,9 @@ const DriverApproval = () => {
   return (
     <div className="module-container fade-in">
       {toastMessage && (
-        <div className="toast-notification fade-in">
-          <CheckCircle size={20} />
-          {toastMessage}
+        <div className={`toast-notification fade-in ${toastType === 'error' ? 'toast-error' : ''}`}>
+          {toastType === 'error' ? <AlertTriangle size={20} /> : <CheckCircle size={20} />}
+          <span>{toastMessage}</span>
         </div>
       )}
       
@@ -1070,36 +1152,64 @@ const DriverApproval = () => {
             setIsAddDriverOpen(false);
             
             try {
+              const imgs = data.images || {};
+              const profilePic = imgs.profilePhoto || null;
+
               // Hit the public register endpoint
-              await fetch(`${BACKEND_URL}/api/drivers`, {
+              const regRes = await fetch(`${BACKEND_URL}/api/drivers`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   name: data.fullName || 'New Driver',
                   phone: data.phone || '000-000-0000',
                   email: data.email || 'N/A',
-                  vehicleType: 'Sedan',
+                  vehicleType: data.make && data.model ? `${data.make} ${data.model}` : 'Sedan',
                   source: 'MANUAL',
                   city: 'Islamabad',
+                  cnic: data.cnic,
+                  license: data.license,
+                  driverPhoto: profilePic ? { url: profilePic } : undefined,
+                  profilePhoto: profilePic || undefined,
+                  CnicFront: imgs.cnic_front ? { url: imgs.cnic_front } : undefined,
+                  CnicBack: imgs.cnic_back ? { url: imgs.cnic_back } : undefined,
+                  LicenseFront: imgs.license_front ? { url: imgs.license_front } : undefined,
+                  LicenseBack: imgs.license_back ? { url: imgs.license_back } : undefined,
+                  VehicleCardFront: imgs.vehicle_id ? { url: imgs.vehicle_id } : undefined,
+                  VehicleFront: imgs.vehicle_front ? { url: imgs.vehicle_front } : undefined,
+                  images: {
+                    driverPhoto: profilePic,
+                    cnicFront: imgs.cnic_front,
+                    cnicBack: imgs.cnic_back,
+                    licenseFront: imgs.license_front,
+                    licenseBack: imgs.license_back,
+                    vehicleCard: imgs.vehicle_id,
+                    vehicleFront: imgs.vehicle_front
+                  },
                   vehicleDetails: {
                     make: data.make || 'Toyota',
                     model: data.model || 'Corolla',
                     year: new Date().getFullYear().toString(),
                     color: data.color || 'White',
-                    category: 'Sedan',
+                    category: data.variant || 'Sedan',
                     ac: true,
-                    plateNumber: data.plate || 'ABC-1234'
+                    plateNumber: data.plate || 'ABC-1234',
+                    seats: parseInt(data.capacity, 10) || 4
                   }
                 })
               });
 
-              setToastMessage('New driver successfully registered to database!');
-              setTimeout(() => setToastMessage(''), 3000);
+              const regData = await regRes.json().catch(() => ({}));
+              if (!regRes.ok || regData.success === false) {
+                throw new Error(regData.message || 'Failed to register driver in database');
+              }
+
+              showToast('New driver successfully registered to database!', 'success');
               
               // Refresh the list from the database
               fetchDrivers();
             } catch (err) {
               console.error("Failed to save driver to DB:", err);
+              showToast(err.message || 'Failed to save driver to database', 'error');
             }
           }}
         />
@@ -1218,25 +1328,31 @@ const DriverApproval = () => {
             <div className="doc-lightbox-footer" style={{justifyContent: 'space-between'}}>
               <button 
                 className="reject-btn btn-sm" 
+                disabled={actionLoading}
                 onClick={() => {
                   setConfirmApproveModal(false);
                   handleAction(selectedDriver.id, selectedDriver._id, 'reject');
                 }}
               >
-                Reject Application
+                {actionLoading ? 'Processing...' : 'Reject Application'}
               </button>
               <div className="d-flex gap-2">
-                <button className="secondary-btn btn-sm" onClick={() => setConfirmApproveModal(false)}>
+                <button 
+                  className="secondary-btn btn-sm" 
+                  disabled={actionLoading}
+                  onClick={() => setConfirmApproveModal(false)}
+                >
                   Cancel
                 </button>
                 <button 
                   className="approve-btn btn-sm" 
+                  disabled={actionLoading}
                   onClick={() => {
                     setConfirmApproveModal(false);
                     handleAction(selectedDriver.id, selectedDriver._id, 'approve');
                   }}
                 >
-                  Yes, Approve Anyway
+                  {actionLoading ? 'Processing...' : 'Yes, Approve Anyway'}
                 </button>
               </div>
             </div>
@@ -1251,8 +1367,7 @@ const DriverApproval = () => {
           onClose={() => setIsEditModalOpen(false)}
           onSuccess={(updatedData) => {
             setIsEditModalOpen(false);
-            setToastMessage('Driver profile updated successfully.');
-            setTimeout(() => setToastMessage(''), 3500);
+            showToast('Driver profile updated successfully.', 'success');
             fetchDrivers();
             
             // Reactively update selected driver without page refresh

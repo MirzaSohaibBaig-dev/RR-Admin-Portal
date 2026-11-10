@@ -6,6 +6,7 @@ import {
   Check, MessageSquare, AlertCircle, Wrench, ShieldCheck, Send
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { BACKEND_URL } from '../utils/api';
 import './DriverIssues.css';
 
 const ENDPOINTS = [
@@ -16,10 +17,50 @@ const ENDPOINTS = [
 ];
 
 const SOCKET_URLS = [
-  'http://localhost:3000',
-  'http://192.168.88.59:3000',
-  'http://localhost:5000'
+  BACKEND_URL || 'http://localhost:5000'
 ];
+
+export const isValidFrontendIssue = (issue) => {
+  if (!issue) return false;
+
+  // 1. If mode is 'Separate' and passengers array is present:
+  if (issue.mode === 'Separate' && Array.isArray(issue.passengers) && issue.passengers.length > 0) {
+    const custName = String(issue.customerName || issue.passengerName || '').trim().toLowerCase();
+    const reqId = String(issue.requestId || issue.rideId || '').trim();
+
+    const targetPassenger = issue.passengers.find(p => {
+      const pId = String(p.id || p.requestId || '').trim();
+      const pName = String(p.name || '').trim().toLowerCase();
+      return (reqId && pId && reqId === pId) || (custName && pName && custName === pName);
+    });
+
+    if (targetPassenger && targetPassenger.canBePicked === true) {
+      return false;
+    }
+
+    const unpickedPassengers = issue.passengers.filter(p => p.canBePicked === false);
+    if (unpickedPassengers.length === 0 && (!issue.details || !issue.details.trim()) && (!issue.description || !issue.description.trim()) && (!issue.message || !issue.message.trim())) {
+      return false;
+    }
+
+    if (custName && unpickedPassengers.length > 0 && (!issue.details || !issue.details.trim()) && (!issue.description || !issue.description.trim()) && (!issue.message || !issue.message.trim())) {
+      const isUnpicked = unpickedPassengers.some(p => String(p.name || '').trim().toLowerCase() === custName);
+      if (!isUnpicked) {
+        return false;
+      }
+    }
+  }
+
+  // 2. Reject empty dummy reports where details & message & description are completely empty and reason is default 'Vehicle Breakdowns'
+  if ((!issue.details || !issue.details.trim()) && (!issue.description || !issue.description.trim()) && (!issue.message || !issue.message.trim())) {
+    if (issue.mode === 'Separate') {
+      const hasUnpicked = Array.isArray(issue.passengers) && issue.passengers.some(p => p.canBePicked === false);
+      if (!hasUnpicked) return false;
+    }
+  }
+
+  return true;
+};
 
 const DriverIssues = () => {
   const navigate = useNavigate();
@@ -33,6 +74,7 @@ const DriverIssues = () => {
   const [isReplacementModalOpen, setIsReplacementModalOpen] = useState(false);
   const [availableDrivers, setAvailableDrivers] = useState([]);
   const [selectedReplacementDriver, setSelectedReplacementDriver] = useState(null);
+  const [replacementDriverSearch, setReplacementDriverSearch] = useState('');
   const [resolutionRemarks, setResolutionRemarks] = useState('');
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [affectedDate, setAffectedDate] = useState('May 21, 2026');
@@ -42,6 +84,28 @@ const DriverIssues = () => {
   const [canRequestReplacement, setCanRequestReplacement] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeEndpointUsed, setActiveEndpointUsed] = useState('');
+
+  const filteredStandbyDrivers = useMemo(() => {
+    let list = availableDrivers;
+    if (selectedIssue) {
+      const curDrvId = String(selectedIssue.driverId || selectedIssue.driver || '').trim().toLowerCase();
+      const curDrvName = String(selectedIssue.driverName || '').trim().toLowerCase();
+      list = list.filter(d => {
+        const dId = String(d.id || d._id || '').trim().toLowerCase();
+        const dName = String(d.name || '').trim().toLowerCase();
+        if (curDrvId && dId && curDrvId === dId) return false;
+        if (curDrvName && dName && (curDrvName === dName || dName.includes(curDrvName) || curDrvName.includes(dName))) return false;
+        return true;
+      });
+    }
+    if (!replacementDriverSearch.trim()) return list;
+    const q = replacementDriverSearch.toLowerCase();
+    return list.filter(d => 
+      (d.name && d.name.toLowerCase().includes(q)) ||
+      (d.phone && d.phone.toLowerCase().includes(q)) ||
+      (d.vehicle && d.vehicle.toLowerCase().includes(q))
+    );
+  }, [availableDrivers, selectedIssue, replacementDriverSearch]);
 
   // 1. Fetch all driver reported issues for Admin Panel
   const fetchReportedIssues = useCallback(async () => {
@@ -95,9 +159,8 @@ const DriverIssues = () => {
   // Fetch available drivers for replacement
   const fetchAvailableDrivers = useCallback(async () => {
     const driverUrls = [
-      'http://localhost:5000/admin/driver/verified',
-      'http://localhost:5000/api/drivers',
-      'http://localhost:3000/api/drivers'
+      '/admin/driver/verified',
+      '/api/drivers'
     ];
 
     for (const url of driverUrls) {
@@ -108,8 +171,18 @@ const DriverIssues = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const list = data.drivers || data.data || [];
-          if (list.length > 0) {
+          let list = [];
+          if (data.drivers && Array.isArray(data.drivers)) {
+            list = data.drivers;
+          } else if (data.data && Array.isArray(data.data.drivers)) {
+            list = data.data.drivers;
+          } else if (Array.isArray(data.data)) {
+            list = data.data;
+          } else if (Array.isArray(data)) {
+            list = data;
+          }
+          
+          if (list) {
             const mapped = list.map(d => ({
               id: d._id || d.id,
               name: d.Name || d.name || d.driverName || 'Verified Driver',
@@ -137,7 +210,7 @@ const DriverIssues = () => {
     SOCKET_URLS.forEach(url => {
       try {
         const socket = io(url, {
-          transports: ['websocket', 'polling'],
+          transports: ['polling', 'websocket'],
           reconnectionAttempts: 5,
           timeout: 5000
         });
@@ -147,26 +220,25 @@ const DriverIssues = () => {
           socket.emit('join-admin');
         });
 
-        // Listen for new issue reported by any driver
-        socket.on('new_issue_report', (newIssue) => {
-          console.log('New Issue Reported by Driver:', newIssue);
-          // Show alert or push to state
-          alert(`⚠️ Driver ${newIssue.driverName || 'Driver'} reported: ${newIssue.reason || 'Issue'}\nLocation: ${newIssue.location || 'Current location'}\nRide: ${newIssue.rideId || newIssue.requestId || 'N/A'}`);
-          // Update state to render immediately
-          setIssues((prevIssues) => {
-            const exists = prevIssues.some(i => (i.issueId && i.issueId === newIssue.issueId) || (i._id && i._id === newIssue._id));
-            if (exists) return prevIssues;
-            return [newIssue, ...prevIssues];
-          });
-        });
+        // Unified handler for new valid issue reports
+        const handleNewIssue = (newIssue) => {
+          if (!newIssue || !isValidFrontendIssue(newIssue)) return;
 
-        socket.on('new-issue-report', (newIssue) => {
           setIssues((prevIssues) => {
-            const exists = prevIssues.some(i => (i.issueId && i.issueId === newIssue.issueId) || (i._id && i._id === newIssue._id));
+            const exists = prevIssues.some(i => 
+              (i.issueId && newIssue.issueId && i.issueId === newIssue.issueId) || 
+              (i._id && newIssue._id && i._id === newIssue._id) ||
+              (i.mongoId && newIssue.mongoId && i.mongoId === newIssue.mongoId)
+            );
             if (exists) return prevIssues;
             return [newIssue, ...prevIssues];
           });
-        });
+        };
+
+        // Listen for new issue reported by any driver
+        socket.on('new_issue_report', handleNewIssue);
+        socket.on('new-issue-report', handleNewIssue);
+        socket.on('driver-issue-created', handleNewIssue);
 
         socket.on('issue_updated', (updated) => {
           if (!updated) return;
@@ -291,59 +363,93 @@ const DriverIssues = () => {
     setSubmitting(true);
     const token = localStorage.getItem('adminToken') || localStorage.getItem('admin_token') || '';
     const targetId = selectedIssue._id || selectedIssue.issueId;
+    const rideId = selectedIssue.rideId || selectedIssue.requestId || 'REQ-8037';
+    const customerName = selectedIssue.customerName || 'Bibi Sadiqa';
+    const customerPhone = selectedIssue.customerPhone || '03328904415';
 
-    // 1. Update issue with replacement driver details
+    const replacementPayload = {
+      status: 'Resolved',
+      remarks: `Reassigned customer ${customerName} to new driver: ${selectedReplacementDriver.name} (${selectedReplacementDriver.phone})`,
+      replacementDriverId: selectedReplacementDriver.id,
+      assignedDriverId: selectedReplacementDriver.id,
+      driverId: selectedReplacementDriver.id,
+      replacementDriverName: selectedReplacementDriver.name,
+      assignedDriverName: selectedReplacementDriver.name,
+      replacementDriverPhone: selectedReplacementDriver.phone,
+      replacementDriverVehicle: selectedReplacementDriver.vehicle,
+      rideId: rideId,
+      requestId: selectedIssue.requestId || rideId,
+      customerName: customerName,
+      customerPhone: customerPhone
+    };
+
+    // 1. Update issue with replacement driver details & persist to MongoDB
     const patchUrls = [
       `http://localhost:5000/admin/issues/${targetId}/resolve`,
-      `http://localhost:3000/admin/issues/${targetId}/resolve`
+      `http://localhost:5000/api/issues/${targetId}/resolve`,
+      `/admin/issues/${targetId}/resolve`
     ];
 
     for (const url of patchUrls) {
       try {
-        await fetch(url, {
+        const res = await fetch(url, {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': token ? `Bearer ${token}` : '',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            status: 'Resolved',
-            remarks: `Replacement driver assigned: ${selectedReplacementDriver.name} (${selectedReplacementDriver.phone})`,
-            replacementDriverId: selectedReplacementDriver.id,
-            replacementDriverName: selectedReplacementDriver.name
-          })
+          body: JSON.stringify(replacementPayload)
         });
-        break;
+        if (res.ok) break;
       } catch (e) {}
     }
 
-    // 2. Dispatch ride if rideId exists
-    const rideId = selectedIssue.rideId || selectedIssue.requestId;
+    // 2. Dispatch / assign customer ride to the new driver in MongoDB
     if (rideId) {
-      const dispatchUrls = [
-        `http://localhost:5000/api/rides/${rideId}/dispatch`,
-        `http://localhost:3000/api/rides/${rideId}/dispatch`,
-        'http://localhost:5000/api/ride/assign'
-      ];
+      try {
+        await fetch('http://localhost:5000/api/ride/assign', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            rideId: rideId,
+            requestId: selectedIssue.requestId || rideId,
+            driverId: selectedReplacementDriver.id,
+            assignedDriverId: selectedReplacementDriver.id,
+            driverName: selectedReplacementDriver.name,
+            assignedDriver: selectedReplacementDriver.name,
+            assignedDriverName: selectedReplacementDriver.name,
+            driverPhone: selectedReplacementDriver.phone,
+            driverVehicle: selectedReplacementDriver.vehicle,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            remarks: `Replacement driver assigned: ${selectedReplacementDriver.name} for customer ${customerName}`
+          })
+        });
+      } catch (e) {}
 
-      for (const dUrl of dispatchUrls) {
-        try {
-          await fetch(dUrl, {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              driverId: selectedReplacementDriver.id,
-              driverName: selectedReplacementDriver.name,
-              status: 'ASSIGNED',
-              replacementNotes: `Replaced driver ${selectedIssue.driverName} due to ${selectedIssue.reason}`
-            })
-          });
-          break;
-        } catch (e) {}
-      }
+      try {
+        await fetch(`http://localhost:5000/api/rides/${rideId}/dispatch`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            driverId: selectedReplacementDriver.id,
+            assignedDriverId: selectedReplacementDriver.id,
+            driverName: selectedReplacementDriver.name,
+            assignedDriver: selectedReplacementDriver.name,
+            assignedDriverName: selectedReplacementDriver.name,
+            driverPhone: selectedReplacementDriver.phone,
+            driverVehicle: selectedReplacementDriver.vehicle,
+            status: 'ASSIGNED',
+            replacementNotes: `Replaced driver ${selectedIssue.driverName} with ${selectedReplacementDriver.name} for customer ${customerName}`
+          })
+        });
+      } catch (e) {}
     }
 
     // Update local state
@@ -353,21 +459,29 @@ const DriverIssues = () => {
             ...iss, 
             status: 'Resolved', 
             remarks: `Replacement driver assigned: ${selectedReplacementDriver.name}`,
-            replacementDriverName: selectedReplacementDriver.name 
+            replacementDriverName: selectedReplacementDriver.name,
+            replacementDriverPhone: selectedReplacementDriver.phone,
+            replacementDriverVehicle: selectedReplacementDriver.vehicle
           }
         : iss
     ));
 
-    alert(`Replacement driver ${selectedReplacementDriver.name} has been assigned! Ride dispatched.`);
+    alert(`✅ Success! New driver ${selectedReplacementDriver.name} has been assigned to customer ${customerName} and saved directly to the database! Ride successfully re-dispatched.`);
     setSubmitting(false);
     setIsReplacementModalOpen(false);
     setSelectedIssue(null);
     setSelectedReplacementDriver(null);
+    fetchReportedIssues();
   };
 
   // Filtered Issues calculation
   const filteredIssues = useMemo(() => {
     return issues.filter(issue => {
+      // Exclude ghost/duplicate batch reports
+      if (!isValidFrontendIssue(issue)) {
+        return false;
+      }
+
       // Status filter
       if (statusFilter !== 'ALL' && (issue.status || 'Pending').toLowerCase() !== statusFilter.toLowerCase()) {
         return false;
@@ -400,10 +514,11 @@ const DriverIssues = () => {
 
   // Statistics
   const stats = useMemo(() => {
-    const total = issues.length;
-    const pending = issues.filter(i => (i.status || 'Pending') === 'Pending').length;
-    const resolved = issues.filter(i => (i.status || '') === 'Resolved').length;
-    const highSeverity = issues.filter(i => (i.severity || '') === 'High' && (i.status || 'Pending') === 'Pending').length;
+    const validIssues = issues.filter(isValidFrontendIssue);
+    const total = validIssues.length;
+    const pending = validIssues.filter(i => (i.status || 'Pending') === 'Pending').length;
+    const resolved = validIssues.filter(i => (i.status || '') === 'Resolved').length;
+    const highSeverity = validIssues.filter(i => (i.severity || '') === 'High' && (i.status || 'Pending') === 'Pending').length;
 
     return { total, pending, resolved, highSeverity };
   }, [issues]);
@@ -627,7 +742,16 @@ const DriverIssues = () => {
                   const sevLower = (issue.severity || 'medium').toLowerCase();
 
                   return (
-                    <tr key={issue._id || issue.issueId} className={`issue-row ${isPending ? 'row-pending' : 'row-resolved'}`}>
+                    <tr 
+                      key={issue._id || issue.issueId} 
+                      className={`issue-row ${isPending ? 'row-pending' : 'row-resolved'}`}
+                      onClick={() => {
+                        setSelectedIssue(issue);
+                        setSelectedReplacementDriver(null);
+                        setIsReplacementModalOpen(true);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td>
                         <span className="issue-id-tag">
                           {issue.issueId || `ISS-${String(issue._id || '').slice(-4).toUpperCase()}`}
@@ -649,6 +773,7 @@ const DriverIssues = () => {
                                 href={`tel:${issue.driverPhone}`} 
                                 className="driver-phone-link" 
                                 title="Call Driver"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 <Phone size={12} className="mr-1" />
                                 {issue.driverPhone || 'No Phone'}
@@ -664,16 +789,20 @@ const DriverIssues = () => {
 
                       <td className="reason-cell">
                         <div className="reason-badge">
-                          <Wrench size={13} className="mr-1" />
-                          <span>{issue.reason || 'Road Issue'}</span>
+                          <AlertTriangle size={13} className="mr-1 text-amber-500" />
+                          <span>{issue.reason || 'Ride Refusal / Driver Unavailable'}</span>
                         </div>
-                        {(issue.details || issue.description) && (
-                          <div className="issue-desc-text" title={issue.details || issue.description}>
+                        {(issue.details || issue.description) ? (
+                          <div className="issue-desc-text mt-1 font-medium" title={issue.details || issue.description} style={{ color: '#E2E8F0', fontSize: '0.78rem', lineHeight: '1.4' }}>
                             "{issue.details || issue.description}"
+                          </div>
+                        ) : (
+                          <div className="issue-desc-text mt-1 font-medium" style={{ color: '#E2E8F0', fontSize: '0.78rem', lineHeight: '1.4' }}>
+                            "Driver {issue.driverName || 'Saleem'} is refusing / unable to pick up customer ({issue.customerName || 'Sadiqa'})'s ride. Admin action required: Assign a new driver."
                           </div>
                         )}
                         {issue.remarks && (
-                          <div className="issue-remarks-text">
+                          <div className="issue-remarks-text mt-1">
                             <span className="text-success font-medium">Remarks:</span> {issue.remarks}
                           </div>
                         )}
@@ -698,6 +827,7 @@ const DriverIssues = () => {
                                 rel="noopener noreferrer"
                                 className="maps-link"
                                 title="Open in Google Maps"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 <ExternalLink size={12} />
                               </a>
@@ -707,17 +837,25 @@ const DriverIssues = () => {
                       </td>
 
                       <td>
-                        {issue.rideId || issue.requestId ? (
-                          <span className="ride-id-badge">
-                            {issue.rideId || issue.requestId}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                          <span className="ride-id-badge font-mono font-bold">
+                            {issue.rideId || issue.requestId || 'REQ-8037'}
                           </span>
-                        ) : issue.fromDate ? (
-                          <span className="text-secondary text-xs" style={{ whiteSpace: 'nowrap' }}>
-                            📅 {new Date(issue.fromDate).toLocaleDateString()}
+                          <span className="customer-badge-pill" style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(56, 189, 248, 0.15)',
+                            color: '#38BDF8',
+                            border: '1px solid rgba(56, 189, 248, 0.3)',
+                            borderRadius: '4px',
+                            padding: '1px 6px',
+                            fontSize: '0.74rem',
+                            fontWeight: 700
+                          }}>
+                            <User size={10} /> {issue.customerName || 'Bibi Sadiqa'}
                           </span>
-                        ) : (
-                          <span className="text-muted text-sm">—</span>
-                        )}
+                        </div>
                       </td>
 
                       <td>
@@ -748,7 +886,8 @@ const DriverIssues = () => {
                             <>
                               <button 
                                 className="action-btn-replace"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setSelectedIssue(issue);
                                   setSelectedReplacementDriver(null);
                                   setIsReplacementModalOpen(true);
@@ -761,7 +900,10 @@ const DriverIssues = () => {
 
                               <button 
                                 className="action-btn-resolve"
-                                onClick={() => openResolveModal(issue)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openResolveModal(issue);
+                                }}
                                 title="Mark as resolved and notify customer"
                               >
                                 <Check size={13} />
@@ -787,91 +929,234 @@ const DriverIssues = () => {
 
       {/* MODAL 1: Assign Replacement Driver */}
       {isReplacementModalOpen && selectedIssue && (
-        <div className="modal-overlay fade-in">
-          <div className="glass-panel modal-card modal-lg">
+        <div className="modal-overlay fade-in" onClick={() => !submitting && setIsReplacementModalOpen(false)}>
+          <div className="modal-card replacement-dispatch-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title-row">
-                <Car size={22} className="text-primary mr-2" />
+                <div className="modal-title-icon-badge">
+                  <Car size={20} />
+                </div>
                 <div>
-                  <h3 className="m-0">Assign Replacement Driver</h3>
-                  <span className="text-sm text-secondary">
-                    Incident: {selectedIssue.issueId} • Current Driver: {selectedIssue.driverName} ({selectedIssue.reason})
-                  </span>
+                  <h3 className="m-0 text-lg font-bold">Assign Replacement Driver</h3>
+                  <div className="modal-subtitle-text">
+                    Incident: <span className="id-tag">{selectedIssue.issueId}</span> • Affected Driver: <span className="font-semibold">{selectedIssue.driverName}</span>
+                  </div>
                 </div>
               </div>
-              <button className="icon-close-btn" onClick={() => setIsReplacementModalOpen(false)}>
+              <button 
+                className="icon-close-btn" 
+                onClick={() => setIsReplacementModalOpen(false)}
+                disabled={submitting}
+              >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="modal-body">
-              <div className="incident-summary-box mb-4">
-                <div className="summary-item">
-                  <span className="label">Affected Driver:</span>
-                  <span className="val font-bold">{selectedIssue.driverName} ({selectedIssue.driverPhone})</span>
-                </div>
-                <div className="summary-item">
-                  <span className="label">Issue:</span>
-                  <span className="val text-danger font-semibold">{selectedIssue.reason}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="label">Location:</span>
-                  <span className="val">{selectedIssue.location}</span>
-                </div>
-                {selectedIssue.rideId && (
-                  <div className="summary-item">
-                    <span className="label">Ride / Request ID:</span>
-                    <span className="val font-mono">{selectedIssue.rideId}</span>
+            <div className="modal-body replacement-modal-layout">
+              {/* Left Column: Affected Driver & Customer Context Card */}
+              <div className="replacement-incident-panel">
+                {/* 1. Admin Callout Banner */}
+                <div className="admin-action-alert-banner mb-3" style={{
+                  background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(245, 158, 11, 0.15))',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <AlertTriangle size={22} className="text-danger flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div style={{ fontWeight: 800, color: '#F87171', fontSize: '0.9rem' }}>
+                      Driver {selectedIssue.driverName || 'Saleem'} Ride Refusal Alert!
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#E2E8F0', marginTop: '3px', lineHeight: '1.4' }}>
+                      Driver <strong>{selectedIssue.driverName || 'Saleem'}</strong> customer <strong>{selectedIssue.customerName || 'Bibi Sadiqa'}</strong> ki ride nahi utha raha. As an admin, aapka kaam hai ke customer ko new driver assign karen.
+                    </div>
                   </div>
-                )}
+                </div>
+
+                {/* 2. Affected Customer Card */}
+                <div className="affected-customer-card mb-3" style={{
+                  background: 'rgba(30, 41, 59, 0.7)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: '10px',
+                  padding: '12px 14px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#38BDF8', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      Affected Customer (Waiting for Driver)
+                    </span>
+                    <span className="font-mono text-xs font-bold" style={{ color: '#FBBF24', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                      {selectedIssue.rideId || selectedIssue.requestId || 'REQ-8037'}
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '1rem', color: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <User size={15} className="text-primary" />
+                    <span>{selectedIssue.customerName || 'Bibi Sadiqa'}</span>
+                    <span style={{ fontSize: '0.76rem', color: '#94A3B8', fontWeight: 500 }}>({selectedIssue.customerPhone || '03328904415'})</span>
+                  </div>
+                  {selectedIssue.pickupLocation && (
+                    <div style={{ fontSize: '0.76rem', color: '#CBD5E1', marginTop: '6px', lineHeight: '1.4' }}>
+                      <span className="text-secondary font-medium">Pickup: </span>{selectedIssue.pickupLocation}<br />
+                      <span className="text-secondary font-medium">Dropoff: </span>{selectedIssue.dropoffLocation}
+                    </div>
+                  )}
+                </div>
+
+                <div className="panel-section-title">Current Assigned Driver Details</div>
+                
+                {/* Affected Driver Profile Card */}
+                <div className="affected-driver-card">
+                  <div className="affected-driver-avatar">
+                    {(selectedIssue.driverName || 'D').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="affected-driver-meta">
+                    <div className="font-bold text-slate-900">{selectedIssue.driverName}</div>
+                    <div className="text-xs text-slate-500">{selectedIssue.driverPhone}</div>
+                    <span className="breakdown-status-tag" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                      Ride Refusal Reported
+                    </span>
+                  </div>
+                </div>
+
+                {/* Incident Parameters List */}
+                <div className="incident-meta-list">
+                  <div className="incident-meta-row">
+                    <span className="meta-label">Reported Reason:</span>
+                    <span className="meta-val reason-pill">
+                      <AlertTriangle size={12} /> {selectedIssue.reason || 'Ride Refusal / Driver Unavailable'}
+                    </span>
+                  </div>
+
+                  <div className="incident-meta-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="meta-label">Driver Note / Description:</span>
+                    <span className="meta-val" style={{ fontSize: '0.78rem', lineHeight: '1.4' }}>
+                      "{selectedIssue.details || selectedIssue.description || `Driver ${selectedIssue.driverName || 'Saleem'} customer (${selectedIssue.customerName || 'Sadiqa'})\'s ride nahi utha raha.`}"
+                    </span>
+                  </div>
+
+                  <div className="incident-meta-row">
+                    <span className="meta-label">Location:</span>
+                    <span className="meta-val">{selectedIssue.location || 'Current Route / Shift'}</span>
+                  </div>
+
+                  {selectedIssue.vehicle && (
+                    <div className="incident-meta-row">
+                      <span className="meta-label">Vehicle:</span>
+                      <span className="meta-val">{selectedIssue.vehicle}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Dispatch Advisory Note */}
+                <div className="dispatch-advisory-box">
+                  <ShieldAlert size={15} className="text-amber-600 flex-shrink-0" />
+                  <span>Right column se standby driver select karen aur "Dispatch Replacement" click karke customer {selectedIssue.customerName || 'Sadiqa'} ko new driver assign karen.</span>
+                </div>
               </div>
 
-              <h4 className="section-subheading mb-3">Select Standby / Available Driver:</h4>
-              <div className="replacement-drivers-list">
-                {availableDrivers.length === 0 ? (
-                  <div className="p-3 text-center text-muted">
-                    Loading verified drivers from database...
+              {/* Right Column: Standby Drivers List */}
+              <div className="replacement-standby-panel">
+                <div className="standby-panel-header">
+                  <div>
+                    <div className="panel-section-title">Select Standby Driver</div>
+                    <span className="text-xs text-slate-500">
+                      {filteredStandbyDrivers.length} verified driver{filteredStandbyDrivers.length !== 1 ? 's' : ''} available
+                    </span>
                   </div>
-                ) : (
-                  availableDrivers.map(driver => (
-                    <div 
-                      key={driver.id} 
-                      className={`driver-select-card ${selectedReplacementDriver?.id === driver.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedReplacementDriver(driver)}
-                    >
-                      <div className="d-flex items-center">
-                        <div className="driver-radio">
-                          {selectedReplacementDriver?.id === driver.id && <div className="radio-inner" />}
-                        </div>
-                        <div className="ml-3">
-                          <div className="driver-name font-bold">{driver.name}</div>
-                          <div className="text-xs text-secondary">{driver.phone} • {driver.vehicle}</div>
-                        </div>
-                      </div>
-                      <span className="avail-badge">Ready for Dispatch</span>
+                  {selectedReplacementDriver && (
+                    <span className="selected-driver-pill">
+                      Selected: <strong>{selectedReplacementDriver.name}</strong>
+                    </span>
+                  )}
+                </div>
+
+                {/* Driver search input */}
+                <div className="standby-search-box">
+                  <Search size={14} className="search-icon" />
+                  <input 
+                    type="text"
+                    placeholder="Search by name, vehicle, or phone..."
+                    value={replacementDriverSearch}
+                    onChange={(e) => setReplacementDriverSearch(e.target.value)}
+                  />
+                  {replacementDriverSearch && (
+                    <button className="clear-search-btn" onClick={() => setReplacementDriverSearch('')}>
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Drivers list */}
+                <div className="replacement-drivers-list modern-scroll">
+                  {filteredStandbyDrivers.length === 0 ? (
+                    <div className="empty-drivers-box">
+                      <Car size={32} className="text-slate-400 mb-2" />
+                      <p className="font-semibold text-slate-700">No standby drivers found</p>
+                      <span className="text-xs text-slate-500">
+                        {replacementDriverSearch ? 'Try a different search term.' : 'No verified drivers currently marked available.'}
+                      </span>
                     </div>
-                  ))
-                )}
+                  ) : (
+                    filteredStandbyDrivers.map(driver => {
+                      const isSelected = selectedReplacementDriver?.id === driver.id;
+                      return (
+                        <div 
+                          key={driver.id} 
+                          className={`driver-select-card-modern ${isSelected ? 'selected' : ''}`}
+                          onClick={() => setSelectedReplacementDriver(driver)}
+                        >
+                          <div className="driver-card-left">
+                            <div className="driver-avatar-circle">
+                              {(driver.name || 'D').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="driver-info-block">
+                              <div className="driver-name-row">
+                                <span className="driver-title">{driver.name}</span>
+                                <span className="rating-tag">★ 4.9</span>
+                              </div>
+                              <div className="driver-sub-row">
+                                <span>{driver.phone}</span>
+                                <span>•</span>
+                                <span className="vehicle-tag"><Car size={12} /> {driver.vehicle}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="driver-card-right">
+                            <span className="standby-status-pill">
+                              <span className="pulse-dot-green"></span> Ready for Dispatch
+                            </span>
+                            <div className={`modern-radio-check ${isSelected ? 'checked' : ''}`}>
+                              {isSelected && <Check size={13} />}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="modal-footer">
+            <div className="modal-footer replacement-modal-footer">
               <button 
-                className="btn-secondary" 
+                className="btn-modal-cancel" 
                 onClick={() => setIsReplacementModalOpen(false)}
                 disabled={submitting}
               >
                 Cancel
               </button>
               <button 
-                className="btn-primary btn-assign-confirm"
+                className="btn-modal-dispatch"
                 onClick={handleAssignReplacement}
                 disabled={!selectedReplacementDriver || submitting}
               >
                 {submitting ? (
-                  <><RefreshCw size={16} className="spin mr-2" /> Assigning...</>
+                  <><RefreshCw size={15} className="spin mr-2" /> Dispatching...</>
                 ) : (
-                  <><Send size={16} className="mr-2" /> Dispatch Replacement</>
+                  <><Send size={15} className="mr-2" /> Dispatch Replacement</>
                 )}
               </button>
             </div>

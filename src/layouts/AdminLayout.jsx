@@ -2,14 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import io from 'socket.io-client';
 import { 
-  Users, Calendar, FileText, Settings, Bell, Search, Car, AlertCircle, AlertTriangle, LogOut, Sun, Moon, X, KeyRound, Star, CreditCard 
+  Users, Calendar, FileText, Settings, Bell, Search, Car, AlertCircle, AlertTriangle, LogOut, Sun, Moon, X, KeyRound, Star, CreditCard,
+  User, Mail, Lock, Eye, EyeOff, Camera, Check, Shield, RefreshCw
 } from 'lucide-react';
+import { BACKEND_URL } from '../utils/api';
 import './AdminLayout.css';
 
 const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const notifDropdownRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -19,9 +22,39 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
   const [newPw, setNewPw] = useState('');
   const [confirmNewPw, setConfirmNewPw] = useState('');
   const [settingsMsg, setSettingsMsg] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(() => {
+    try {
+      return localStorage.getItem('rr_admin_avatar') || user?.avatar || '';
+    } catch (e) {
+      return '';
+    }
+  });
+
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 4 * 1024 * 1024) {
+        alert('File size must be under 4MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target.result;
+        setAvatarUrl(result);
+        try {
+          localStorage.setItem('rr_admin_avatar', result);
+        } catch (err) {}
+      };
+      reader.readAsDataURL(file);
+    }
+  };
   
   // Unread badge and notification states
   const [unreadIssuesCount, setUnreadIssuesCount] = useState(0);
+  const [pendingReplacementsCount, setPendingReplacementsCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [recentNotifications, setRecentNotifications] = useState([]);
 
@@ -31,10 +64,23 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
     setUnreadIssuesCount(0);
   };
 
+  // Mark replacement requests as seen/read so badge disappears immediately
+  const markReplacementsAsSeen = () => {
+    localStorage.setItem('admin_replacements_last_seen_time', Date.now().toString());
+    setPendingReplacementsCount(0);
+  };
+
   // When admin navigates to /driver-issues, automatically clear badge
   useEffect(() => {
     if (location.pathname === '/driver-issues') {
       markIssuesAsSeen();
+    }
+  }, [location.pathname]);
+
+  // When admin navigates to /driver-replacement, automatically clear badge
+  useEffect(() => {
+    if (location.pathname === '/driver-replacement') {
+      markReplacementsAsSeen();
     }
   }, [location.pathname]);
 
@@ -93,14 +139,52 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
       }
     };
 
-    fetchCount();
-    const interval = setInterval(fetchCount, 30000);
+    const fetchReplacementsCount = async () => {
+      if (window.location.pathname === '/driver-replacement') {
+        setPendingReplacementsCount(0);
+        return;
+      }
+      const urls = [
+        `${BACKEND_URL}/api/replacement-requests`,
+        'http://localhost:5000/api/replacement-requests',
+        '/api/replacement-requests'
+      ];
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            const list = data.data || [];
+            const lastSeenStr = localStorage.getItem('admin_replacements_last_seen_time');
+            if (!lastSeenStr) {
+              const pending = data.pendingCount !== undefined ? data.pendingCount : list.filter(r => (r.status || '').toLowerCase() === 'pending').length;
+              setPendingReplacementsCount(pending);
+            } else {
+              const lastSeenTime = parseInt(lastSeenStr, 10);
+              const newUnseen = list.filter(r => {
+                const createdTime = new Date(r.createdAt || 0).getTime();
+                return createdTime > lastSeenTime && (r.status || '').toLowerCase() === 'pending';
+              });
+              setPendingReplacementsCount(newUnseen.length);
+            }
+            break;
+          }
+        } catch (e) {}
+      }
+    };
 
-    const socketUrls = ['http://localhost:5000', 'http://localhost:5000'];
+    fetchCount();
+    fetchReplacementsCount();
+    const interval = setInterval(() => {
+      fetchCount();
+      fetchReplacementsCount();
+    }, 25000);
+
+    const socketUrls = [BACKEND_URL || 'http://localhost:5000'];
     const sockets = [];
     socketUrls.forEach(sUrl => {
       try {
-        const s = io(sUrl, { transports: ['websocket', 'polling'] });
+        const s = io(sUrl, { transports: ['polling', 'websocket'] });
         s.on('new_issue_report', (newIssue) => {
           if (window.location.pathname !== '/driver-issues') {
             setUnreadIssuesCount(prev => prev + 1);
@@ -119,6 +203,30 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
         });
         s.on('issue_updated', () => {
           fetchCount();
+        });
+        s.on('replacement-request-updated', () => {
+          if (window.location.pathname !== '/driver-replacement') {
+            fetchReplacementsCount();
+          } else {
+            setPendingReplacementsCount(0);
+          }
+        });
+        s.on('replacement-updated', () => {
+          if (window.location.pathname !== '/driver-replacement') {
+            fetchReplacementsCount();
+          } else {
+            setPendingReplacementsCount(0);
+          }
+        });
+        s.on('new_replacement_request', () => {
+          if (window.location.pathname !== '/driver-replacement') {
+            setPendingReplacementsCount(prev => prev + 1);
+          }
+        });
+        s.on('new-replacement-request', () => {
+          if (window.location.pathname !== '/driver-replacement') {
+            setPendingReplacementsCount(prev => prev + 1);
+          }
         });
         s.on('customer-fare-response', (data) => {
           setUnreadIssuesCount(prev => prev + 1);
@@ -215,29 +323,44 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
           <h2 className="brand-logo">R&R Dispatcher</h2>
         </div>
         
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Sidebar Navigation">
           <div className="nav-category">APPROVALS & SECURITY</div>
           <ul className="nav-list">
             <li className="nav-item">
               <NavLink to="/driver-approval" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <Users size={18} />
-                <span>Driver Approval</span>
+                <span className="nav-label">Driver Approval</span>
               </NavLink>
             </li>
             <li className="nav-item">
               <NavLink to="/password-resets" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <KeyRound size={18} />
-                <span>Password Resets</span>
+                <span className="nav-label">Password Resets</span>
               </NavLink>
             </li>
           </ul>
 
-          <div className="nav-category mt-4">OPERATIONS</div>
+          <div className="nav-category">OPERATIONS</div>
           <ul className="nav-list">
             <li className="nav-item">
               <NavLink to="/driver-selection" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <Car size={18} />
-                <span>Ride Dispatch</span>
+                <span className="nav-label">Ride Dispatch</span>
+              </NavLink>
+            </li>
+            <li className="nav-item">
+              <NavLink 
+                to="/driver-replacement" 
+                className={({isActive}) => isActive ? "nav-link active" : "nav-link"}
+                onClick={markReplacementsAsSeen}
+              >
+                <RefreshCw size={18} />
+                <span className="nav-label">Driver Replacement</span>
+                {pendingReplacementsCount > 0 && (
+                  <span className="nav-issue-counter" style={{ background: '#f59e0b', color: '#ffffff' }}>
+                    {pendingReplacementsCount}
+                  </span>
+                )}
               </NavLink>
             </li>
             <li className="nav-item">
@@ -247,7 +370,7 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
                 onClick={markIssuesAsSeen}
               >
                 <AlertTriangle size={18} />
-                <span style={{ flex: 1 }}>Reported Issues</span>
+                <span className="nav-label">Reported Issues</span>
                 {unreadIssuesCount > 0 && (
                   <span className="nav-issue-counter">{unreadIssuesCount}</span>
                 )}
@@ -256,172 +379,337 @@ const AdminLayout = ({ user, onLogout, onUpdateUser }) => {
             <li className="nav-item">
               <NavLink to="/driver-rating" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <Star size={18} />
-                <span>Driver Rating</span>
+                <span className="nav-label">Driver Rating</span>
               </NavLink>
             </li>
             <li className="nav-item">
               <NavLink to="/ride-pool" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <FileText size={18} />
-                <span>Ride Pool</span>
+                <span className="nav-label">Ride Pool</span>
               </NavLink>
             </li>
           </ul>
 
-          <div className="nav-category mt-4">MANAGEMENT</div>
+          <div className="nav-category">MANAGEMENT</div>
           <ul className="nav-list">
             <li className="nav-item">
               <NavLink to="/pending-rides" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <AlertCircle size={18} />
-                <span>Pending Rides</span>
+                <span className="nav-label">Pending Rides</span>
               </NavLink>
             </li>
           </ul>
 
-          <div className="nav-category mt-4">FINANCE</div>
+          <div className="nav-category">FINANCE</div>
           <ul className="nav-list">
             <li className="nav-item">
               <NavLink to="/payment-tracking" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <CreditCard size={18} />
-                <span>Payment Tracking</span>
+                <span className="nav-label">Payment Tracking</span>
               </NavLink>
             </li>
           </ul>
 
-          <div className="nav-category mt-4">SETTINGS</div>
+          <div className="nav-category">SETTINGS</div>
           <ul className="nav-list">
             <li className="nav-item">
               <NavLink to="/terms-conditions" className={({isActive}) => isActive ? "nav-link active" : "nav-link"}>
                 <Settings size={18} />
-                <span>Terms & Conditions</span>
+                <span className="nav-label">Terms & Conditions</span>
               </NavLink>
             </li>
           </ul>
         </nav>
 
         <div className="sidebar-footer">
-          <div className="profile-widget" onClick={() => setIsSettingsOpen(true)} style={{cursor: 'pointer'}}>
-            <div className="avatar">{initial}</div>
-            <div className="profile-info">
-              <span className="name">{user?.name || 'sohaib'}</span>
-              <span className="email">{user?.email || 'sohaib@rrdispatcher.com'}</span>
+          <div 
+            className="profile-widget" 
+            onClick={() => setIsSettingsOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setIsSettingsOpen(true);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            title="Account Settings"
+            aria-label="Open Account Settings"
+          >
+            <div 
+              className="avatar" 
+              style={avatarUrl ? {backgroundImage: `url(${avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent'} : {}}
+              aria-hidden="true"
+            >
+              {!avatarUrl && initial}
             </div>
-            <button className="logout-btn" title="Logout" onClick={(e) => { e.stopPropagation(); onLogout(); }}>
+            <div className="profile-info">
+              <span className="name" title={user?.name || 'sohaib'}>{user?.name || 'sohaib'}</span>
+              <span className="email" title={user?.email || 'sohaib@rrdispatcher.com'}>{user?.email || 'sohaib@rrdispatcher.com'}</span>
+            </div>
+            <button 
+              type="button" 
+              className="logout-btn" 
+              title="Logout" 
+              aria-label="Logout"
+              onClick={(e) => { e.stopPropagation(); onLogout(); }}
+            >
               <LogOut size={16} />
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Settings Modal */}
+      {/* Modern Account Settings Modal */}
       {isSettingsOpen && (
-        <div className="modal-overlay fade-in" style={{zIndex: 1000}}>
-          <div className="glass-panel modal-content" style={{maxWidth: '600px'}}>
-            <div className="modal-header">
-              <h2>Account Settings</h2>
-              <button className="icon-btn" onClick={() => setIsSettingsOpen(false)}>
-                <X size={20} />
+        <div className="modal-overlay fade-in settings-modal-overlay" style={{zIndex: 1000}} onClick={() => setIsSettingsOpen(false)}>
+          <div className="glass-panel modal-content settings-modal-card" style={{maxWidth: '620px'}} onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="settings-modal-header">
+              <div className="d-flex align-items-center gap-3">
+                <div className="settings-header-icon-box">
+                  <Settings size={20} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="settings-modal-title">Account Settings</h2>
+                  <p className="settings-modal-subtitle">Manage your administrator profile details and security credentials</p>
+                </div>
+              </div>
+              <button className="settings-close-btn" onClick={() => setIsSettingsOpen(false)} title="Close settings">
+                <X size={18} />
               </button>
             </div>
+
+            {/* Sub-header Tabs */}
             <div className="settings-tabs-row">
               <button 
                 className={`settings-tab-btn ${settingsTab === 'Profile' ? 'active' : ''}`}
                 onClick={() => setSettingsTab('Profile')}
               >
-                Profile Settings
+                <User size={15} />
+                <span>Profile Settings</span>
               </button>
               <button 
                 className={`settings-tab-btn ${settingsTab === 'Privacy' ? 'active' : ''}`}
                 onClick={() => setSettingsTab('Privacy')}
               >
-                Privacy Policy
+                <Shield size={15} />
+                <span>Privacy Policy</span>
               </button>
             </div>
             
-            <div className="modal-body">
+            <div className="settings-modal-body">
               {settingsTab === 'Profile' && (
                 <div className="fade-in">
-                  <div className="settings-avatar-section">
-                    <div className="avatar settings-avatar">{initial}</div>
-                    <button className="settings-change-photo-btn">Change Profile Picture</button>
-                  </div>
-
-                  <div className="settings-form-grid">
-                    <div className="form-group mb-3">
-                      <label>Full Name</label>
+                  {/* Profile Hero Avatar Strip */}
+                  <div className="settings-profile-hero">
+                    <div className="settings-avatar-wrapper">
+                      <div className="settings-avatar-ring">
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="Avatar" className="settings-avatar-img" />
+                        ) : (
+                          <div className="settings-avatar-circle">{initial}</div>
+                        )}
+                      </div>
+                      <button 
+                        type="button" 
+                        className="settings-avatar-camera-badge"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Upload new profile picture"
+                      >
+                        <Camera size={13} />
+                      </button>
                       <input 
-                        type="text" 
-                        className="form-input" 
-                        value={profileName} 
-                        onChange={(e) => setProfileName(e.target.value)} 
-                        placeholder="Update your name" 
+                        type="file" 
+                        ref={fileInputRef} 
+                        accept="image/*" 
+                        style={{ display: 'none' }} 
+                        onChange={handleAvatarUpload}
                       />
                     </div>
-                    <div className="form-group mb-3">
-                      <label>Email Address</label>
-                      <input 
-                        type="email" 
-                        className="form-input" 
-                        value={user?.email || ''} 
-                        readOnly 
-                        style={{opacity: 0.7, cursor:'not-allowed'}} 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="settings-form-grid">
-                    <div className="form-group mb-3">
-                      <label>Current Password</label>
-                      <input 
-                        type="password" 
-                        className="form-input" 
-                        placeholder="Enter current password" 
-                        value={currentPw}
-                        onChange={(e) => setCurrentPw(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group mb-3">
-                      <label>New Password</label>
-                      <input 
-                        type="password" 
-                        className="form-input" 
-                        placeholder="Enter new password" 
-                        value={newPw}
-                        onChange={(e) => setNewPw(e.target.value)}
-                      />
+                    <div className="settings-profile-meta">
+                      <div className="settings-profile-name-row">
+                        <h3 className="settings-profile-name">{profileName || user?.name || 'Administrator'}</h3>
+                        <span className="settings-role-badge">Super Admin</span>
+                      </div>
+                      <p className="settings-profile-email">{user?.email || 'admin@rrdispatcher.com'}</p>
+                      <button 
+                        type="button" 
+                        className="settings-upload-text-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Camera size={13} /> Change Photo
+                      </button>
                     </div>
                   </div>
 
-                  <div className="form-group mb-4">
-                    <label>Confirm New Password</label>
-                    <input 
-                      type="password" 
-                      className="form-input" 
-                      placeholder="Re-enter new password" 
-                      value={confirmNewPw}
-                      onChange={(e) => setConfirmNewPw(e.target.value)}
-                    />
+                  {/* Section 1: Personal Information */}
+                  <div className="settings-section">
+                    <div className="settings-section-header">
+                      <span className="settings-section-title">Personal Information</span>
+                    </div>
+                    <div className="settings-form-grid">
+                      <div className="settings-field-group">
+                        <label className="settings-label">Full Name</label>
+                        <div className="settings-input-wrapper">
+                          <User size={16} className="settings-input-icon" />
+                          <input 
+                            type="text" 
+                            className="settings-modern-input" 
+                            value={profileName} 
+                            onChange={(e) => setProfileName(e.target.value)} 
+                            placeholder="Enter your full name" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="settings-field-group">
+                        <label className="settings-label d-flex align-items-center justify-content-between">
+                          <span>Email Address</span>
+                          <span className="settings-badge-readonly">Verified • Read-only</span>
+                        </label>
+                        <div className="settings-input-wrapper disabled">
+                          <Mail size={16} className="settings-input-icon" />
+                          <input 
+                            type="email" 
+                            className="settings-modern-input disabled" 
+                            value={user?.email || 'sohaib@rrdispatcher.com'} 
+                            readOnly 
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <button className="settings-save-btn" onClick={handleSaveProfile}>
-                    Save Changes
-                  </button>
+                  {/* Section 2: Security & Password */}
+                  <div className="settings-section mt-4">
+                    <div className="settings-section-header">
+                      <div>
+                        <span className="settings-section-title">Security & Password</span>
+                        <p className="settings-section-caption">Leave fields blank if you do not want to change your password</p>
+                      </div>
+                    </div>
+
+                    <div className="settings-form-grid">
+                      <div className="settings-field-group">
+                        <label className="settings-label">Current Password</label>
+                        <div className="settings-input-wrapper">
+                          <Lock size={16} className="settings-input-icon" />
+                          <input 
+                            type={showCurrentPw ? "text" : "password"} 
+                            className="settings-modern-input" 
+                            placeholder="Enter current password" 
+                            value={currentPw}
+                            onChange={(e) => setCurrentPw(e.target.value)}
+                          />
+                          <button 
+                            type="button" 
+                            className="settings-pw-toggle" 
+                            onClick={() => setShowCurrentPw(!showCurrentPw)}
+                            tabIndex={-1}
+                            title={showCurrentPw ? "Hide password" : "Show password"}
+                          >
+                            {showCurrentPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="settings-field-group">
+                        <label className="settings-label">New Password</label>
+                        <div className="settings-input-wrapper">
+                          <Lock size={16} className="settings-input-icon" />
+                          <input 
+                            type={showNewPw ? "text" : "password"} 
+                            className="settings-modern-input" 
+                            placeholder="Min. 6 characters" 
+                            value={newPw}
+                            onChange={(e) => setNewPw(e.target.value)}
+                          />
+                          <button 
+                            type="button" 
+                            className="settings-pw-toggle" 
+                            onClick={() => setShowNewPw(!showNewPw)}
+                            tabIndex={-1}
+                            title={showNewPw ? "Hide password" : "Show password"}
+                          >
+                            {showNewPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="settings-field-group mt-3">
+                      <label className="settings-label">Confirm New Password</label>
+                      <div className="settings-input-wrapper">
+                        <Lock size={16} className="settings-input-icon" />
+                        <input 
+                          type={showConfirmPw ? "text" : "password"} 
+                          className="settings-modern-input" 
+                          placeholder="Re-enter your new password" 
+                          value={confirmNewPw}
+                          onChange={(e) => setConfirmNewPw(e.target.value)}
+                        />
+                        <button 
+                          type="button" 
+                          className="settings-pw-toggle" 
+                          onClick={() => setShowConfirmPw(!showConfirmPw)}
+                          tabIndex={-1}
+                          title={showConfirmPw ? "Hide password" : "Show password"}
+                        >
+                          {showConfirmPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal Action Buttons */}
+                  <div className="settings-modal-footer mt-4">
+                    <button 
+                      type="button" 
+                      className="settings-cancel-btn" 
+                      onClick={() => setIsSettingsOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="button" 
+                      className="settings-save-btn" 
+                      onClick={handleSaveProfile}
+                    >
+                      <Check size={16} /> Save Changes
+                    </button>
+                  </div>
                 </div>
               )}
 
               {settingsTab === 'Privacy' && (
-                <div className="fade-in" style={{maxHeight: '400px', overflowY: 'auto'}}>
-                  <h4>R&R Dispatcher Privacy Policy</h4>
-                  <p className="text-secondary mt-2">Last updated: August 2026</p>
-                  <p className="mt-3">
-                    This Privacy Policy describes Our policies and procedures on the collection, use and disclosure of Your information when You use the Service and tells You about Your privacy rights and how the law protects You.
-                  </p>
-                  <h5 className="mt-3">Information Collection and Use</h5>
-                  <p>We collect several different types of information for various purposes to provide and improve our Service to you.</p>
-                  <h5 className="mt-3">Types of Data Collected</h5>
-                  <p><strong>Personal Data:</strong> While using Our Service, We may ask You to provide Us with certain personally identifiable information that can be used to contact or identify You.</p>
-                  <button className="btn-primary w-100 mt-4 justify-content-center" onClick={() => setIsSettingsOpen(false)}>
-                    Acknowledge & Close
-                  </button>
+                <div className="fade-in settings-privacy-content">
+                  <div className="privacy-badge-pill mb-2">
+                    <Shield size={14} className="text-primary" /> Official Policy
+                  </div>
+                  <h4 className="privacy-heading">R&R Dispatcher Privacy & Data Policy</h4>
+                  <p className="privacy-meta">Last revised: August 2026 • Version 2.4</p>
+                  
+                  <div className="privacy-card-box mt-3">
+                    <h5>1. Data Protection & Encryption</h5>
+                    <p>All passenger and driver phone numbers, CNIC verification records, and trip coordinates are encrypted using industry-standard AES-256 protocols.</p>
+                  </div>
+
+                  <div className="privacy-card-box mt-2">
+                    <h5>2. Dispatch Tracking Compliance</h5>
+                    <p>GPS tracking logs are strictly maintained for safety audit trails and dispute resolutions. Records are purged according to data retention regulations.</p>
+                  </div>
+
+                  <div className="privacy-card-box mt-2">
+                    <h5>3. Access Permissions</h5>
+                    <p>Only verified super administrators have credentials to modify ride schedules, fares, and system-level driver assignments.</p>
+                  </div>
+
+                  <div className="settings-modal-footer mt-4">
+                    <button className="settings-save-btn w-100 justify-content-center" onClick={() => setIsSettingsOpen(false)}>
+                      <Check size={16} /> Acknowledge & Close
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

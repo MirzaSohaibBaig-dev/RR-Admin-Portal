@@ -132,7 +132,7 @@ const DriverSelection = () => {
     fetchRides();
 
     const socket = io(BACKEND_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       reconnectionAttempts: 5,
       timeout: 10000
     });

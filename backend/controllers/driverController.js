@@ -136,18 +136,32 @@ export const createDriver = async (req, res, next) => {
       name,
       email,
       phone,
+      password,
       vehicleType,
       source = 'MANUAL',
       rating = 4.8,
       city,
       preferredRoutes,
       vehicleDetails,
-      documents
+      documents,
+      driverPhoto,
+      profilePhoto,
+      CnicFront,
+      CnicBack,
+      LicenseFront,
+      LicenseBack,
+      VehicleCardFront,
+      VehicleFront,
+      images,
+      cnic,
+      license
     } = req.body;
 
     if (!name || !email || !phone) {
       return sendError(res, 'Name, email, and phone number are required', 400);
     }
+
+    const resolvedProfilePhoto = driverPhoto?.url || (typeof driverPhoto === 'string' ? driverPhoto : null) || profilePhoto || images?.profilePhoto || images?.driverPhoto;
 
     const newDriverData = {
       name,
@@ -156,6 +170,7 @@ export const createDriver = async (req, res, next) => {
       Email: email,
       phone,
       PhoneNumber: phone,
+      ...(password ? { password } : {}),
       vehicleType: vehicleType || 'Sedan',
       status: 'PENDING',
       verificationStatus: 'Pending',
@@ -164,6 +179,25 @@ export const createDriver = async (req, res, next) => {
       availability: 'Available',
       city: city || 'Islamabad',
       preferredRoutes: preferredRoutes || ['Islamabad - Rawalpindi', 'Islamabad - Lahore'],
+      driverPhoto: resolvedProfilePhoto ? { url: resolvedProfilePhoto } : undefined,
+      profilePhoto: resolvedProfilePhoto || undefined,
+      CnicNumber: cnic,
+      License: license,
+      CnicFront: CnicFront || (images?.cnic_front ? { url: images.cnic_front } : undefined),
+      CnicBack: CnicBack || (images?.cnic_back ? { url: images.cnic_back } : undefined),
+      LicenseFront: LicenseFront || (images?.license_front ? { url: images.license_front } : undefined),
+      LicenseBack: LicenseBack || (images?.license_back ? { url: images.license_back } : undefined),
+      VehicleCardFront: VehicleCardFront || (images?.vehicle_id ? { url: images.vehicle_id } : undefined),
+      VehicleFront: VehicleFront || (images?.vehicle_front ? { url: images.vehicle_front } : undefined),
+      images: {
+        driverPhoto: resolvedProfilePhoto,
+        cnicFront: images?.cnic_front,
+        cnicBack: images?.cnic_back,
+        licenseFront: images?.license_front,
+        licenseBack: images?.license_back,
+        vehicleCard: images?.vehicle_id,
+        vehicleFront: images?.vehicle_front
+      },
       vehicleDetails: vehicleDetails || {
         make: 'Toyota',
         model: 'Corolla',
@@ -200,7 +234,7 @@ export const approveDriver = async (req, res, next) => {
 
     const driver = await DriverDB.update(
       filter,
-      { status: 'APPROVED', availability: 'Available' }
+      { status: 'APPROVED', verificationStatus: 'Verified', availability: 'Available' }
     );
 
     if (!driver) {
@@ -209,7 +243,7 @@ export const approveDriver = async (req, res, next) => {
 
     await AdminStatsDB.syncStats();
 
-    return sendSuccess(res, driver, `Driver ${driver.name} (${driver.driverId}) approved successfully`);
+    return sendSuccess(res, driver, `Driver ${driver.name || driver.Name} (${driver.driverId || driver.driverReferenceId || driver._id}) approved successfully`);
   } catch (err) {
     next(err);
   }
@@ -225,7 +259,7 @@ export const rejectDriver = async (req, res, next) => {
 
     const driver = await DriverDB.update(
       filter,
-      { status: 'REJECTED', notes: reason }
+      { status: 'REJECTED', verificationStatus: 'Rejected', notes: reason, availability: 'Offline' }
     );
 
     if (!driver) {
@@ -234,7 +268,7 @@ export const rejectDriver = async (req, res, next) => {
 
     await AdminStatsDB.syncStats();
 
-    return sendSuccess(res, driver, `Driver ${driver.name} (${driver.driverId}) rejected`);
+    return sendSuccess(res, driver, `Driver ${driver.name || driver.Name} (${driver.driverId || driver.driverReferenceId || driver._id}) rejected`);
   } catch (err) {
     next(err);
   }

@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import ReplacementRequest from '../models/ReplacementRequest.js';
 import { DriverDB, AssignmentDB } from '../models/dbAdapter.js';
 import { sendSuccess, sendError } from '../middleware/responseHandler.js';
@@ -16,25 +16,25 @@ export const formatReplacement = (r) => {
     id: reqId,
     requestId: reqId,
     displayId: reqId,
-    clientName: r.clientName || 'Arbab Khan',
-    passengerName: r.clientName || 'Arbab Khan',
-    clientPhone: r.clientPhone || '+92 300 1234567',
-    passengerPhone: r.clientPhone || '+92 300 1234567',
+    clientName: r.clientName || r.passengerName || 'Customer',
+    passengerName: r.passengerName || r.clientName || 'Customer',
+    clientPhone: r.clientPhone || r.passengerPhone || 'N/A',
+    passengerPhone: r.passengerPhone || r.clientPhone || 'N/A',
     clientEmail: r.clientEmail || '',
-    scheduledDate: r.scheduledDate || 'May 21, 2026',
-    timeSlot: r.timeSlot || '06:00 AM - 10:00 AM',
-    reason: r.reason || 'Vehicle Issue',
+    scheduledDate: r.scheduledDate || 'Today',
+    timeSlot: r.timeSlot || 'Immediate',
+    reason: r.reason || 'Vehicle Breakdown',
     preferences: {
       vehicleArrangement: r.preferences?.vehicleArrangement || 'Separate',
       vehicleType: r.preferences?.vehicleType || 'Sedan Executive',
-      genderPreference: r.preferences?.genderPreference || 'Male Only',
+      genderPreference: r.preferences?.genderPreference || 'Any',
       acPreference: r.preferences?.acPreference || 'AC'
     },
-    additionalNotes: r.additionalNotes || 'Driver is unavailable due to vehicle issue.',
+    additionalNotes: r.additionalNotes || '',
     status: r.status || 'Pending',
-    pickupLocation: r.pickupLocation || 'Blue Area, Islamabad',
-    dropoffLocation: r.dropoffLocation || 'F-10 Markaz, Islamabad',
-    dropLocation: r.dropoffLocation || 'F-10 Markaz, Islamabad',
+    pickupLocation: r.pickupLocation || 'Pickup Location',
+    dropoffLocation: r.dropoffLocation || r.dropLocation || 'Drop-off Location',
+    dropLocation: r.dropLocation || r.dropoffLocation || 'Drop-off Location',
     fare: r.fare || 4500,
     fareFormatted: r.fareFormatted || 'Rs. 4,500',
     assignedDriver: r.assignedDriver || null,
@@ -209,6 +209,46 @@ export const assignReplacementDriver = async (req, res, next) => {
         remarks: remarks || `Replacement driver ${assignedDriverName} assigned`
       });
     } catch (e) {}
+
+    // Persist directly to MongoDB riderequests and rides collections
+    if (client) {
+      const repDriverObjId = (driver?._id && /^[0-9a-fA-F]{24}$/.test(String(driver._id))) ? new mongoose.Types.ObjectId(driver._id) : (driverId || null);
+      const rideUpdatePayload = {
+        $set: {
+          status: 'ASSIGNED',
+          driver: repDriverObjId,
+          driverId: String(driver?._id || driverId || ''),
+          assignedDriver: assignedDriverName,
+          assignedDriverName: assignedDriverName,
+          assignedDriverPhone: assignedPhone,
+          assignedDriverCode: assignedDriverCode,
+          assignedDriverDetails: assignedDriverObj,
+          replacementNotes: `Replacement driver ${assignedDriverName} assigned`,
+          updatedAt: new Date()
+        }
+      };
+
+      const orFilters = [
+        { requestId: formatted.requestId },
+        { rideId: formatted.requestId }
+      ];
+      if (formatted.rideId) {
+        orFilters.push({ rideId: formatted.rideId });
+        orFilters.push({ requestId: formatted.rideId });
+      }
+      if (formatted.clientName) {
+        orFilters.push({ passengerName: new RegExp(`^${formatted.clientName.trim()}$`, 'i') });
+        orFilters.push({ name: new RegExp(`^${formatted.clientName.trim()}$`, 'i') });
+      }
+
+      for (const dbName of ['ride_and_serve', 'test']) {
+        for (const colName of ['riderequests', 'rides']) {
+          try {
+            await client.db(dbName).collection(colName).updateOne({ $or: orFilters }, rideUpdatePayload);
+          } catch (e) {}
+        }
+      }
+    }
 
     // Emit live Socket.IO events
     const io = req.app.get('io');

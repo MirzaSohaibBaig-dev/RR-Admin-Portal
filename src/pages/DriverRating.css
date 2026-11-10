@@ -803,3 +803,390 @@
   font-weight: 600;
   color: var(--text-secondary, #94a3b8);
 }
+
+/* ===================================================
+   COMPLETED RIDES AWAITING RATING QUEUE & TAB STYLES
+   =================================================== */
+
+.rating-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 0;
+  background: var(--bg-secondary, #ffffff);
+  border-bottom: 2px solid var(--border-color, #e2e8f0);
+}
+
+.rating-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rating-view-tab:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.rating-view-tab.active {
+  color: var(--accent-primary, #2563eb);
+  border-bottom-color: var(--accent-primary, #2563eb);
+}
+
+.view-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+.view-tab-badge.warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.view-tab-badge.neutral {
+  background: var(--bg-tertiary, #f1f5f9);
+  color: var(--text-secondary, #64748b);
+}
+
+/* Pending Rides View Container */
+.pending-rides-view-container {
+  padding: 1.5rem;
+  background: var(--bg-secondary, #ffffff);
+}
+
+.pending-rides-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 0.85rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pending-rides-banner .banner-text {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.88rem;
+  color: #92400e;
+}
+
+.pending-rides-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 640px) {
+  .pending-rides-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pending-ride-card {
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.pending-ride-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  border-color: #cbd5e1;
+}
+
+.ride-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border-color, #f1f5f9);
+  margin-bottom: 0.85rem;
+}
+
+.ride-id-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #f1f5f9;
+  color: #334155;
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.ride-completed-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.ride-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.ride-driver-box {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ride-driver-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border-color, #e2e8f0);
+}
+
+.ride-driver-avatar-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.ride-driver-name {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.ride-driver-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.ride-driver-vehicle {
+  font-size: 0.75rem;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* Route display inside card */
+.ride-route-box {
+  background: var(--bg-tertiary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  position: relative;
+}
+
+.route-point {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.route-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.pickup-dot { background: #16a34a; }
+.dropoff-dot { background: #dc2626; }
+
+.route-line-v {
+  width: 2px;
+  height: 12px;
+  background: #cbd5e1;
+  margin-left: 3px;
+}
+
+.route-label {
+  font-weight: 700;
+  font-size: 0.7rem;
+  color: var(--text-secondary, #64748b);
+  margin-right: 0.3rem;
+}
+
+.route-address {
+  color: var(--text-primary, #0f172a);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.ride-meta-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  padding-top: 0.3rem;
+}
+
+.meta-item .meta-label {
+  color: var(--text-secondary, #64748b);
+  margin-right: 0.35rem;
+}
+
+.meta-item .meta-value {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.fare-highlight {
+  color: #16a34a !important;
+  font-weight: 800 !important;
+  font-size: 0.95rem !important;
+}
+
+.ride-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-color, #f1f5f9);
+}
+
+.ride-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: #15803d;
+  font-weight: 600;
+}
+
+.rate-ride-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.15rem;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.rate-ride-cta-btn:hover {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
+}
+
+/* Empty Reviews State */
+.empty-reviews-state {
+  text-align: center;
+  padding: 4.5rem 2rem;
+}
+
+.empty-reviews-state .empty-icon-wrap {
+  width: 64px;
+  height: 64px;
+  background: #dcfce7;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+}
+
+.empty-reviews-state h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.5rem;
+}
+
+.empty-reviews-state p {
+  color: var(--text-secondary, #64748b);
+  max-width: 480px;
+  margin: 0 auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Context Banner in Modal */
+.modal-ride-context-banner {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin: 0 1.5rem 1.25rem;
+}
+
+.modal-ride-context-banner .context-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  color: #1e293b;
+  margin-bottom: 0.3rem;
+}
+
+.modal-ride-context-banner .context-passenger {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.modal-ride-context-banner .context-route {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+/* History Ride Badge */
+.history-ride-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-left: 0.5rem;
+}
+

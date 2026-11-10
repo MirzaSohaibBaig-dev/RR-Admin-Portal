@@ -106,28 +106,59 @@
 }
 
 .avatar-upload {
-  width: 80px;
-  height: 80px;
+  width: 86px;
+  height: 86px;
   border-radius: 50%;
-  border: 2px solid var(--text-secondary);
+  border: 2px dashed var(--accent-primary, #6366f1);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
+  cursor: pointer;
+  background: var(--bg-primary, #f8fafc);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.avatar-upload:hover {
+  border-color: var(--accent-hover, #4f46e5);
+  transform: scale(1.03);
+}
+
+.avatar-upload.has-image {
+  border: 2.5px solid var(--accent-primary, #6366f1);
+  background: transparent;
+}
+
+.avatar-preview-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .avatar-edit-icon {
   position: absolute;
   bottom: 0;
   right: 0;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-secondary, #ffffff);
+  border: 1.5px solid var(--border-color, #e2e8f0);
   border-radius: 50%;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.avatar-upload:hover .avatar-edit-icon {
+  background: var(--accent-primary, #6366f1);
+}
+
+.avatar-upload:hover .avatar-edit-icon svg {
+  color: #ffffff !important;
 }
 
 /* Custom Input Box (Step 1) */
@@ -319,4 +350,64 @@
   max-height: 120px;
   object-fit: contain;
 }
+
+/* Secondary Button for Form Step Navigation */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Password Eye Toggle Button */
+.input-eye-toggle-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.input-eye-toggle-btn:hover {
+  color: var(--accent-primary);
+}
+
+/* Form Error Banner */
+.form-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-md);
+  color: #ef4444;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
 

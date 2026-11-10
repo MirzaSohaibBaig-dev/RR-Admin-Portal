@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import io from 'socket.io-client';
 import { 
   MapPin, Clock, Car, Filter, Star, CheckCircle, Search, ChevronLeft, Wind, 
   User, Phone, Mail, Calendar, DollarSign, Sparkles, X, Eye, ThumbsUp, ShieldCheck, ArrowRight, RotateCcw,
   Smartphone, Navigation, RefreshCw, Send, CheckCircle2, AlertCircle, Radio, Edit2, Check,
-  UserCheck, Briefcase, CreditCard, Users, Plus
+  UserCheck, Briefcase, CreditCard, Users, Plus, Zap, Edit3
 } from 'lucide-react';
 import LocationAutocomplete from '../components/LocationAutocomplete';
-import { RideAPI, BACKEND_URL } from '../utils/api';
+import { RideAPI, RoutePoolingAPI, BACKEND_URL } from '../utils/api';
 
 const MOBILE_URL = BACKEND_URL;
 const LIVE_BACKEND_URL = BACKEND_URL;
@@ -956,7 +957,31 @@ const isRideAssigned = (r) => {
 };
 
 const RideDispatch = () => {
-  const [activeMainTab, setActiveMainTab] = useState('requests'); // 'requests' | 'driver-panel'
+  const [activeMainTab, setActiveMainTab] = useState(() => {
+    try {
+      const savedTab = localStorage.getItem('admin_active_dispatch_tab');
+      if (savedTab && ['requests', 'route-pooling', 'schedule-rides', 'travel-requests', 'hire-driver', 'driver-panel'].includes(savedTab)) {
+        return savedTab;
+      }
+    } catch (e) {}
+    return 'requests';
+  });
+
+  const handleTabChange = (tabName) => {
+    setActiveMainTab(tabName);
+    try {
+      localStorage.setItem('admin_active_dispatch_tab', tabName);
+    } catch (e) {}
+    setSelectedRide(null);
+  };
+
+  // Route-Based Pooling & Corridor Matching State (Capped at Max 5 Customers)
+  const [routeBatches, setRouteBatches] = useState([]);
+  const [routeBatchesLoading, setRouteBatchesLoading] = useState(false);
+  const [routeSearchQuery, setRouteSearchQuery] = useState('');
+  const [routeStatusFilter, setRouteStatusFilter] = useState('all'); // 'all', 'ready', 'dispatched'
+  const [selectedBatchDrivers, setSelectedBatchDrivers] = useState({}); // { [batchId]: driverId }
+  const [dispatchingBatchId, setDispatchingBatchId] = useState(null);
   const [rideRequests, setRideRequests] = useState(() => {
     try {
       ['rr_rides_cache', 'rr_rides_cache_v2', 'rr_rides_cache_v3', 'rr_rides_cache_v4', 'rr_rides_cache_v5', 'rr_rides_cache_v6'].forEach(k => {
@@ -1045,6 +1070,31 @@ const RideDispatch = () => {
       : (Number(String(ride.fare || '').replace(/[^0-9.]/g, '')) || 9500);
     setFareModalAmount(String(initial));
   };
+
+  // Escape key to close modals and body scroll lock
+  useEffect(() => {
+    const isAnyModalOpen = Boolean(viewDriverModal || viewPassengerModal || fareModalRide || dispatchModalRide);
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (viewDriverModal) setViewDriverModal(null);
+        if (viewPassengerModal) setViewPassengerModal(null);
+        if (fareModalRide && !isSavingFareModal) setFareModalRide(null);
+        if (dispatchModalRide && !isSubmittingDispatch) setDispatchModalRide(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [viewDriverModal, viewPassengerModal, fareModalRide, dispatchModalRide, isSavingFareModal, isSubmittingDispatch]);
 
   const handleSaveFareModal = async (e) => {
     if (e) e.preventDefault();
@@ -1586,11 +1636,8 @@ const RideDispatch = () => {
     fetchDrivers();
 
     const sockets = [];
-    const socketUrls = Array.from(new Set([
-      BACKEND_URL || 'http://localhost:5000',
-      'http://localhost:5000',
-      'http://localhost:5000'
-    ].filter(Boolean)));
+    const primarySocketUrl = BACKEND_URL || 'http://localhost:5000';
+    const socketUrls = [primarySocketUrl];
 
     const handleIncomingRide = (incoming) => {
       if (incoming) {
@@ -1639,11 +1686,11 @@ const RideDispatch = () => {
     socketUrls.forEach(url => {
       try {
         const s = io(url, {
-          transports: ['websocket', 'polling'],
+          transports: ['polling', 'websocket'],
           reconnection: true,
           reconnectionAttempts: 30,
           reconnectionDelay: 1000,
-          timeout: 3000
+          timeout: 5000
         });
 
         s.on('connect', () => {
@@ -1745,6 +1792,16 @@ const RideDispatch = () => {
               return r;
             }));
           }
+        });
+
+        // Listen for Route Batch Dispatches
+        s.on('route-batch-dispatched', () => {
+          fetchRouteBatches();
+          loadRides();
+        });
+        s.on('batch-dispatched', () => {
+          fetchRouteBatches();
+          loadRides();
         });
 
         // 4. Listen to 'replacement-requested' -> show replacement request notification
@@ -2095,6 +2152,83 @@ const RideDispatch = () => {
 
   const fetchRides = loadRides;
 
+  // Route Pooling Fetch and Dispatch Handlers
+  const fetchRouteBatches = useCallback(async () => {
+    try {
+      setRouteBatchesLoading(true);
+      const res = await RoutePoolingAPI.getBatches();
+      if (res && res.success && res.data) {
+        setRouteBatches(res.data.batches || []);
+      }
+    } catch (err) {
+      console.error('[RoutePooling] Error fetching batches:', err);
+    } finally {
+      setRouteBatchesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRouteBatches();
+  }, [fetchRouteBatches]);
+
+  const handleDispatchRouteBatch = async (batch) => {
+    const chosenDriverId = selectedBatchDrivers[batch.batchId] || (batch.matchingDrivers && batch.matchingDrivers[0]?._id);
+    if (!chosenDriverId) {
+      alert('Please select a driver to dispatch for this route corridor.');
+      return;
+    }
+
+    const matchedDriver = batch.matchingDrivers?.find(d => String(d._id) === String(chosenDriverId));
+    const driverName = matchedDriver?.name || 'Driver';
+
+    try {
+      setDispatchingBatchId(batch.batchId);
+      const rideIds = batch.customers.map(c => c._id || c.requestId || c.mongoId);
+      const res = await RoutePoolingAPI.dispatchBatch({
+        batchId: batch.batchId,
+        rideIds,
+        driverId: chosenDriverId,
+        remarks: `Dispatched ${rideIds.length} pooled passengers on ${batch.routeName} to ${driverName}`
+      });
+
+      if (res && res.success) {
+        setToastMessage(`🚀 Success! Dispatched ${rideIds.length} customers on ${batch.routeName} to ${driverName}!`);
+        setTimeout(() => setToastMessage(''), 4500);
+        fetchRouteBatches();
+        loadRides();
+      } else {
+        alert(res?.message || 'Failed to dispatch route batch');
+      }
+    } catch (err) {
+      console.error('Batch dispatch error:', err);
+      alert('Failed to dispatch route batch. Please check server logs.');
+    } finally {
+      setDispatchingBatchId(null);
+    }
+  };
+
+  const filteredRouteBatches = useMemo(() => {
+    return routeBatches.filter(b => {
+      if (routeStatusFilter === 'ready' && b.status !== 'Ready for Dispatch') return false;
+      if (routeStatusFilter === 'dispatched' && b.status !== 'Dispatched') return false;
+
+      if (routeSearchQuery.trim()) {
+        const q = routeSearchQuery.toLowerCase().trim();
+        const matchRoute = String(b.routeName || '').toLowerCase().includes(q);
+        const matchBatch = String(b.batchId || '').toLowerCase().includes(q);
+        const matchDriver = String(b.assignedDriver?.name || '').toLowerCase().includes(q);
+        const matchCustomer = b.customers?.some(c => 
+          String(c.passengerName || '').toLowerCase().includes(q) ||
+          String(c.pickupLocation || '').toLowerCase().includes(q) ||
+          String(c.dropoffLocation || '').toLowerCase().includes(q) ||
+          String(c.requestId || '').toLowerCase().includes(q)
+        );
+        return matchRoute || matchBatch || matchDriver || matchCustomer;
+      }
+      return true;
+    });
+  }, [routeBatches, routeSearchQuery, routeStatusFilter]);
+
   // Handle Dispatch: assign driver, save to permanent storage, update UI, and switch to Driver Panel
   const handleDispatch = async (driver) => {
     if (!selectedRide) return;
@@ -2236,12 +2370,38 @@ const RideDispatch = () => {
     setToastActionDriver(driver);
     setSelectedRide(null);
 
-    // Auto-switch tab: If replacement request, stay on replacement tab; otherwise stay on requests table to see ASSIGNED row
-    if (currentSelected.isReplacement || currentSelected.requestId?.startsWith('RPL-') || currentSelected._type === 'replacement') {
-      setActiveMainTab('replacement-requests');
-      setReplacementStatusFilter('assigned');
+    // Auto-switch tab: Always preserve the current tab the admin is on!
+    let targetTab = activeMainTab;
+    if (currentSelected.isDriverHire || currentSelected.requestId?.startsWith('HDR-') || currentSelected._type === 'hire') {
+      targetTab = 'hire-driver';
+    } else if (currentSelected.isReplacement || currentSelected.requestId?.startsWith('RPL-') || currentSelected._type === 'replacement') {
+      targetTab = 'replacement-requests';
+    } else if (currentSelected.isScheduleRide || currentSelected.requestId?.startsWith('SCH-') || currentSelected._type === 'schedule') {
+      targetTab = 'schedule-rides';
+    } else if (currentSelected.isTravel || currentSelected.requestId?.startsWith('TT-') || currentSelected._type === 'travel') {
+      targetTab = 'travel-requests';
+    } else if (activeMainTab && activeMainTab !== 'requests') {
+      targetTab = activeMainTab;
     } else {
-      setActiveMainTab('requests');
+      targetTab = 'requests';
+    }
+
+    setActiveMainTab(targetTab);
+    try {
+      localStorage.setItem('admin_active_dispatch_tab', targetTab);
+    } catch (e) {}
+
+    // Switch the filter on that specific tab to 'assigned' so the user sees the newly assigned card in the same tab
+    if (targetTab === 'hire-driver') {
+      setHireStatusFilter('assigned');
+    } else if (targetTab === 'replacement-requests') {
+      setReplacementStatusFilter('assigned');
+    } else if (targetTab === 'schedule-rides') {
+      setScheduleStatusFilter('assigned');
+    } else if (targetTab === 'travel-requests') {
+      setTravelStatusFilter('assigned');
+    } else if (targetTab === 'requests') {
+      setRequestStatusFilter('assigned');
     }
 
     setTimeout(() => {
@@ -2346,29 +2506,30 @@ const RideDispatch = () => {
         ]);
         if (typeof loadDriverHires === 'function') loadDriverHires();
       } else {
-        const dispatchUrls = [
-          `${BACKEND_URL}/api/rides/${mongoId}/dispatch`,
-          ...(currentSelected.requestId ? [`${BACKEND_URL}/api/rides/${currentSelected.requestId}/dispatch`] : []),
-          `http://localhost:5000/api/rides/${mongoId}/dispatch`,
-          ...(currentSelected.requestId ? [`http://localhost:5000/api/rides/${currentSelected.requestId}/dispatch`] : []),
-          `http://localhost:5000/api/rides/${mongoId}/dispatch`,
-          `/api/rides/${mongoId}/dispatch`
-        ];
-        await Promise.allSettled([
-          ...dispatchUrls.map(u =>
-            fetch(u, {
-              method: 'PATCH',
+        const targetId = mongoId || currentSelected.requestId || currentSelected.id;
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/rides/${targetId}/dispatch`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dispatchBody)
+          });
+          if (!res.ok) {
+            // Graceful fallback to /api/ride/assign
+            await fetch(`${BACKEND_URL}/api/ride/assign`, {
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(dispatchBody)
-            })
-          ),
-          RideAPI.dispatch(mongoId, selectedDriver.name, selectedDriver.id, {
-            driverId: selectedDriver.id,
-            driverName: selectedDriver.name,
-            fare: finalFareNum,
-            fareFormatted: finalFareFmt
-          })
-        ]);
+              body: JSON.stringify({
+                rideId: targetId,
+                driverId: selectedDriver.id,
+                driverName: selectedDriver.name,
+                fare: finalFareNum,
+                fareFormatted: finalFareFmt
+              })
+            }).catch(() => {});
+          }
+        } catch (fetchErr) {
+          console.warn('[Dispatch] Primary dispatch warning:', fetchErr.message);
+        }
       }
     } catch (err) {
       console.error('Dispatch API error:', err);
@@ -2469,6 +2630,39 @@ const RideDispatch = () => {
     setSelectedDriverForDispatch(null);
     setIsSubmittingDispatch(false);
 
+    // Auto-switch tab: Always preserve the current tab the admin is on!
+    let targetTab = activeMainTab;
+    if (currentSelected.isDriverHire || currentSelected.requestId?.startsWith('HDR-') || currentSelected._type === 'hire') {
+      targetTab = 'hire-driver';
+    } else if (currentSelected.isReplacement || currentSelected.requestId?.startsWith('RPL-') || currentSelected._type === 'replacement') {
+      targetTab = 'replacement-requests';
+    } else if (currentSelected.isScheduleRide || currentSelected.requestId?.startsWith('SCH-') || currentSelected._type === 'schedule') {
+      targetTab = 'schedule-rides';
+    } else if (currentSelected.isTravel || currentSelected.requestId?.startsWith('TT-') || currentSelected._type === 'travel') {
+      targetTab = 'travel-requests';
+    } else if (activeMainTab && activeMainTab !== 'requests') {
+      targetTab = activeMainTab;
+    } else {
+      targetTab = 'requests';
+    }
+
+    setActiveMainTab(targetTab);
+    try {
+      localStorage.setItem('admin_active_dispatch_tab', targetTab);
+    } catch (e) {}
+
+    if (targetTab === 'hire-driver') {
+      setHireStatusFilter('assigned');
+    } else if (targetTab === 'replacement-requests') {
+      setReplacementStatusFilter('assigned');
+    } else if (targetTab === 'schedule-rides') {
+      setScheduleStatusFilter('assigned');
+    } else if (targetTab === 'travel-requests') {
+      setTravelStatusFilter('assigned');
+    } else if (targetTab === 'requests') {
+      setRequestStatusFilter('assigned');
+    }
+
     // Broadcast immediately to active Socket.IO connection
     activeSocketsRef.current.forEach(sock => {
       try {
@@ -2506,21 +2700,27 @@ const RideDispatch = () => {
         assignedDriverName: driverName,
         assignedDriverId: driverId
       };
-      const dispatchUrls = [
-        `${BACKEND_URL}/api/rides/${mongoId}/dispatch`,
-        ...(currentSelected.requestId ? [`${BACKEND_URL}/api/rides/${currentSelected.requestId}/dispatch`] : []),
-        `http://localhost:5000/api/rides/${mongoId}/dispatch`,
-        ...(currentSelected.requestId ? [`http://localhost:5000/api/rides/${currentSelected.requestId}/dispatch`] : []),
-        `http://localhost:5000/api/rides/${mongoId}/dispatch`,
-        `/api/rides/${mongoId}/dispatch`
-      ];
-      await Promise.allSettled(dispatchUrls.map(u =>
-        fetch(u, {
+      const targetId = mongoId || currentSelected.requestId || currentSelected.id;
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/rides/${targetId}/dispatch`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(dispatchBody)
-        })
-      ));
+        });
+        if (!res.ok) {
+          await fetch(`${BACKEND_URL}/api/ride/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              rideId: targetId,
+              driverId: driverId,
+              driverName: driverName
+            })
+          }).catch(() => {});
+        }
+      } catch (fetchErr) {
+        console.warn('[Dispatch] Modal dispatch warning:', fetchErr.message);
+      }
     } catch (err) {
       console.warn('Dispatch API error:', err);
     }
@@ -2689,27 +2889,27 @@ const RideDispatch = () => {
                         {/* 1. CUSTOMER INFO: Passenger Name, Phone & Request ID */}
                         <td>
                           <div className="passenger-table-cell" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div className="avatar-circle" style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#EEF2FF', color: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '0.92rem', border: '1px solid #C7D2FE', flexShrink: 0 }}>
+                            <div className="avatar-circle">
                               {getPassengerInitial(ride.passengerName || ride.customerName || ride.passenger)}
                             </div>
                             <div className="passenger-info-col" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              <strong className="passenger-name-text" style={{ fontSize: '0.9rem', color: '#1E293B', fontWeight: 700 }}>
+                              <strong className="passenger-name-text">
                                 {pName}
                               </strong>
                               {pPhone && (
-                                <div className="passenger-phone-text" style={{ fontSize: '0.76rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div className="passenger-phone-text" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                   <Phone size={11} className="text-secondary flex-shrink-0" />
                                   <a 
                                     href={`tel:${pPhone}`}
                                     onClick={e => e.stopPropagation()}
-                                    style={{ color: '#64748B', textDecoration: 'none' }}
+                                    className="passenger-phone-link"
                                     title="Call passenger"
                                   >
                                     {pPhone}
                                   </a>
                                 </div>
                               )}
-                              <span className="id-pill font-mono mt-0.5" style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: '#F1F5F9', border: '1px solid #E2E8F0', color: '#475569', display: 'inline-block', width: 'fit-content' }}>
+                              <span className="id-pill font-mono mt-0.5">
                                 {ride.requestId || ride.id || ride.displayId || 'REQ'}
                               </span>
                             </div>
@@ -2737,7 +2937,7 @@ const RideDispatch = () => {
 
                             {/* Return Route (for Two Way) */}
                             {prefs.tripType === 'Two Way' && (prefs.eveningPickup || prefs.eveningDropoff) && (
-                              <div className="trip-stage-box evening-stage-box mt-1.5 p-1.5 rounded" style={{ border: '1px dashed #CBD5E1', background: '#F8FAFC' }}>
+                              <div className="trip-stage-box evening-stage-box mt-1.5 p-1.5 rounded">
                                 <div className="route-line-row">
                                   <span className="text-xs text-secondary font-medium">Pick: </span>
                                   <span className="route-address-text text-xs" title={prefs.eveningPickup}>
@@ -2759,12 +2959,12 @@ const RideDispatch = () => {
                         <td>
                           <div className="schedule-cell-box">
                             {prefs.startingDate && (
-                              <div className="d-flex align-items-center gap-1 mb-1 text-xs text-primary font-semibold">
+                              <div className="schedule-date-row d-flex align-items-center gap-1 mb-1 text-xs text-primary font-semibold">
                                 <Calendar size={12} className="text-primary" />
                                 <span>Date: {prefs.startingDate}</span>
                               </div>
                             )}
-                            <div className="schedule-days-pill-box" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '3px 8px', fontSize: '0.78rem', fontWeight: 600 }}>
+                            <div className="schedule-days-pill-box">
                               <Calendar size={12} className="text-primary flex-shrink-0" />
                               <span>
                                 {(() => {
@@ -2777,12 +2977,12 @@ const RideDispatch = () => {
                                 })()}
                               </span>
                             </div>
-                            <div className="schedule-timing-row mt-1.5" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: '#475569' }}>
+                            <div className="schedule-timing-row mt-1.5">
                               <Clock size={11} className="text-secondary flex-shrink-0" />
                               <span>Reach: <strong>{prefs.morningTime}</strong></span>
                             </div>
                             {prefs.tripType === 'Two Way' && prefs.eveningTime && (
-                              <div className="schedule-timing-row mt-0.5" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: '#475569' }}>
+                              <div className="schedule-timing-row mt-0.5">
                                 <Clock size={11} className="text-secondary flex-shrink-0" />
                                 <span>Leave: <strong>{prefs.eveningTime}</strong></span>
                               </div>
@@ -3530,7 +3730,7 @@ const RideDispatch = () => {
             <p>No travel requests found.</p>
           </div>
         ) : (
-          <div className="schedule-grid">
+          <div className="schedule-cards-grid">
             {filteredTravelRequests.map(r => {
               const s = String(r.status || '').toUpperCase();
               let badgeClass = 'status-pending';
@@ -4594,6 +4794,332 @@ const RideDispatch = () => {
     );
   };
 
+  // Render Route-Based Pooling Batches (Max 5 per Vehicle) View
+  const renderRoutePooling = () => {
+    const readyBatchesCount = routeBatches.filter(b => b.status === 'Ready for Dispatch').length;
+    const totalPooledCustomers = routeBatches.reduce((acc, b) => acc + (b.passengerCount || 0), 0);
+
+    return (
+      <div className="route-pooling-console fade-in">
+        {/* Banner Section */}
+        <div className="route-pooling-banner-card">
+          <div className="banner-left-info">
+            <div className="banner-tag">
+              <Zap size={14} className="text-warning" />
+              <span>Smart Route Corridor Matching Engine</span>
+            </div>
+            <h2>Route-Based Customer Pooling (Max 5 per Vehicle)</h2>
+            <p>
+              Customer rides are automatically clustered by origin and destination corridors into batches of up to 5 passengers. Matching drivers registered for each route are prioritized for single-click dispatch.
+            </p>
+          </div>
+
+          <div className="banner-kpis-row">
+            <div className="kpi-mini-box">
+              <span className="kpi-mini-label">Route Corridors</span>
+              <span className="kpi-mini-val">{routeBatches.length}</span>
+            </div>
+            <div className="kpi-mini-box highlight-orange">
+              <span className="kpi-mini-label">Ready for Dispatch</span>
+              <span className="kpi-mini-val">{readyBatchesCount}</span>
+            </div>
+            <div className="kpi-mini-box">
+              <span className="kpi-mini-label">Pooled Passengers</span>
+              <span className="kpi-mini-val">{totalPooledCustomers}</span>
+            </div>
+            <div className="kpi-mini-box highlight-blue">
+              <span className="kpi-mini-label">Vehicle Capacity</span>
+              <span className="kpi-mini-val">Max 5</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter and Search Bar */}
+        <div className="route-filters-bar">
+          <div className="route-search-wrap">
+            <Search size={16} className="search-icon-muted" />
+            <input 
+              type="text"
+              placeholder="Search route corridor, hub (e.g. Saddar, Murree), passenger name..."
+              value={routeSearchQuery}
+              onChange={(e) => setRouteSearchQuery(e.target.value)}
+              className="route-search-input"
+            />
+            {routeSearchQuery && (
+              <button className="clear-search-btn" onClick={() => setRouteSearchQuery('')}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="route-filter-pills">
+            <button 
+              className={`filter-pill ${routeStatusFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setRouteStatusFilter('all')}
+            >
+              All Batches ({routeBatches.length})
+            </button>
+            <button 
+              className={`filter-pill ${routeStatusFilter === 'ready' ? 'active' : ''}`}
+              onClick={() => setRouteStatusFilter('ready')}
+            >
+              Ready for Dispatch ({readyBatchesCount})
+            </button>
+            <button 
+              className={`filter-pill ${routeStatusFilter === 'dispatched' ? 'active' : ''}`}
+              onClick={() => setRouteStatusFilter('dispatched')}
+            >
+              Dispatched ({routeBatches.filter(b => b.status === 'Dispatched').length})
+            </button>
+
+            <button 
+              className="refresh-batches-btn"
+              onClick={fetchRouteBatches}
+              disabled={routeBatchesLoading}
+              title="Refresh Route Batches"
+            >
+              <RefreshCw size={15} className={routeBatchesLoading ? 'animate-spin' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Batches Grid */}
+        {routeBatchesLoading && routeBatches.length === 0 ? (
+          <div className="loading-state-container">
+            <RefreshCw size={28} className="animate-spin text-primary" />
+            <p>Clustering customer rides by route corridor (Max 5 per batch)...</p>
+          </div>
+        ) : filteredRouteBatches.length === 0 ? (
+          <div className="empty-batches-state">
+            <Navigation size={48} className="empty-state-icon" />
+            <h3>No Route Batches Found</h3>
+            <p>No customer rides match the selected route filter. Incoming customer rides will automatically group here.</p>
+          </div>
+        ) : (
+          <div className="route-batches-grid">
+            {filteredRouteBatches.map(batch => {
+              const isFull = batch.passengerCount >= 5;
+              const fillPercentage = Math.min(100, (batch.passengerCount / 5) * 100);
+              const selectedDriverId = selectedBatchDrivers[batch.batchId] || (batch.matchingDrivers && batch.matchingDrivers[0]?._id);
+              const isDispatchingThis = dispatchingBatchId === batch.batchId;
+
+              return (
+                <div key={batch.batchId} className={`route-batch-card ${batch.status === 'Dispatched' ? 'dispatched-card' : ''}`}>
+                  {/* Card Header */}
+                  <div className="batch-card-top-bar">
+                    <div className="batch-identity-group">
+                      <span className="batch-id-pill">{batch.batchId}</span>
+                      {batch.totalBatchesForRoute > 1 && (
+                        <span className="batch-chunk-pill">
+                          Batch #{batch.batchIndex} of {batch.totalBatchesForRoute}
+                        </span>
+                      )}
+                    </div>
+                    <div className="batch-status-group">
+                      <span className={`batch-status-badge ${batch.status === 'Ready for Dispatch' ? 'status-ready' : (batch.status === 'Dispatched' ? 'status-dispatched' : 'status-partial')}`}>
+                        <span className="status-dot-pulse" />
+                        {batch.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Route Corridor Visual Banner */}
+                  <div className="batch-corridor-box">
+                    <div className="corridor-direction-row">
+                      <div className="corridor-hub from-hub">
+                        <span className="hub-role">Origin Hub</span>
+                        <strong className="hub-name">{batch.fromHub}</strong>
+                      </div>
+                      <div className="corridor-arrow-visual">
+                        <span className="corridor-line" />
+                        <ArrowRight size={18} className="corridor-arrow-icon" />
+                      </div>
+                      <div className="corridor-hub to-hub">
+                        <span className="hub-role">Destination Hub</span>
+                        <strong className="hub-name">{batch.toHub}</strong>
+                      </div>
+                    </div>
+                    <div className="corridor-meta-sub">
+                      <span className="fare-tag">💰 Total Route Fare: {batch.totalFareFormatted}</span>
+                      <span className="cap-tag">🔒 Max Cap: 5 Seats</span>
+                    </div>
+                  </div>
+
+                  {/* Capacity Progress Bar */}
+                  <div className="batch-capacity-meter-wrap">
+                    <div className="meter-label-row">
+                      <span className="meter-label">
+                        <Users size={14} />
+                        <strong>{batch.passengerCount} / 5 Passengers Pooled</strong>
+                      </span>
+                      <span className="meter-seats-left">
+                        {batch.seatsAvailable > 0 ? `${batch.seatsAvailable} Seat(s) Available` : 'Vehicle Full (5/5)'}
+                      </span>
+                    </div>
+                    <div className="capacity-track">
+                      <div 
+                        className={`capacity-fill ${isFull ? 'fill-full' : (batch.passengerCount >= 3 ? 'fill-optimal' : 'fill-partial')}`}
+                        style={{ width: `${fillPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Customer Rides in this Batch */}
+                  <div className="batch-customers-section">
+                    <div className="section-title-sm">
+                      <span>Pooled Customers on this Route:</span>
+                      <span className="max-cap-note">Strict Max 5</span>
+                    </div>
+
+                    <div className="customers-mini-list">
+                      {batch.customers.map((c, idx) => (
+                        <div key={c._id || c.requestId || idx} className="pooled-customer-item">
+                          <div className="customer-avatar-badge">
+                            {c.passengerName ? c.passengerName.charAt(0).toUpperCase() : 'C'}
+                          </div>
+                          <div className="customer-info-content">
+                            <div className="customer-name-row">
+                              <span className="pooled-passenger-name">{c.passengerName}</span>
+                              <span className="customer-req-id">{c.requestId}</span>
+                              <span className="customer-fare-tag">{c.fareFormatted || `Rs. ${c.fare}`}</span>
+                            </div>
+                            <div className="pooled-route-line">
+                              <span className="point-dot pickup" />
+                              <span className="point-text" title={c.pickupLocation}>{c.pickupLocation}</span>
+                              <span className="point-arrow">➔</span>
+                              <span className="point-dot dropoff" />
+                              <span className="point-text" title={c.dropoffLocation}>{c.dropoffLocation}</span>
+                            </div>
+                            {c.passengerPhone && (
+                              <div className="pooled-contact-line">
+                                <Phone size={11} /> <span>{c.passengerPhone}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Empty Seat Placeholders */}
+                      {batch.seatsAvailable > 0 && Array.from({ length: batch.seatsAvailable }).map((_, slotIdx) => (
+                        <div key={`empty-slot-${slotIdx}`} className="empty-seat-slot">
+                          <div className="empty-seat-icon">
+                            <Plus size={14} />
+                          </div>
+                          <div className="empty-seat-text">
+                            <span>Open Seat #{batch.passengerCount + slotIdx + 1}</span>
+                            <small>Available for incoming passenger on {batch.fromHub} ➔ {batch.toHub}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Matching Driver & Dispatch Section */}
+                  <div className="batch-dispatch-section">
+                    {batch.status === 'Dispatched' ? (
+                      <div className="dispatched-confirmed-box">
+                        <div className="confirmed-icon">
+                          <CheckCircle2 size={20} className="text-success" />
+                        </div>
+                        <div className="confirmed-details">
+                          <strong>Route Batch Dispatched to Driver</strong>
+                          <span>Driver: <b>{batch.assignedDriver?.name}</b> ({batch.assignedDriver?.code})</span>
+                          {batch.assignedDriver?.phone && <span>Contact: {batch.assignedDriver?.phone}</span>}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="driver-matching-selector-box">
+                        <div className="selector-title">
+                          <Car size={15} />
+                          <span>Select Driver for this Route Corridor:</span>
+                        </div>
+
+                        {batch.matchingDrivers && batch.matchingDrivers.length > 0 ? (
+                          <div className="driver-options-wrap">
+                            <select 
+                              className="batch-driver-dropdown"
+                              value={selectedDriverId}
+                              onChange={(e) => setSelectedBatchDrivers(prev => ({
+                                ...prev,
+                                [batch.batchId]: e.target.value
+                              }))}
+                            >
+                              {batch.matchingDrivers.map(drv => (
+                                <option key={drv._id} value={drv._id}>
+                                  {drv.isExactRouteMatch ? '🎯 [100% ROUTE MATCH] ' : (drv.isPartialRouteMatch ? '⚡ [CORRIDOR MATCH] ' : '')}
+                                  {drv.name} ({drv.driverCode}) — {drv.vehicle} • {drv.status} • ⭐ {drv.rating}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Highlight of selected driver */}
+                            {(() => {
+                              const activeDrv = batch.matchingDrivers.find(d => String(d._id) === String(selectedDriverId)) || batch.matchingDrivers[0];
+                              if (!activeDrv) return null;
+                              return (
+                                <div className="selected-driver-preview-chip">
+                                  <div className="driver-chip-left">
+                                    <div className="driver-avatar-circle">
+                                      {activeDrv.name?.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="driver-chip-meta">
+                                      <div className="driver-chip-name-row">
+                                        <strong>{activeDrv.name}</strong>
+                                        <span className="driver-code-tag">{activeDrv.driverCode}</span>
+                                        {activeDrv.isExactRouteMatch && (
+                                          <span className="exact-match-badge">🎯 100% Route Match</span>
+                                        )}
+                                      </div>
+                                      <div className="driver-chip-sub">
+                                        <span>{activeDrv.vehicle}</span>
+                                        <span>•</span>
+                                        <span>{activeDrv.phone || 'No phone'}</span>
+                                        <span>•</span>
+                                        <span className="rating-tag">⭐ {activeDrv.rating}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            <button 
+                              className="batch-dispatch-submit-btn"
+                              onClick={() => handleDispatchRouteBatch(batch)}
+                              disabled={isDispatchingThis}
+                            >
+                              {isDispatchingThis ? (
+                                <>
+                                  <RefreshCw size={16} className="animate-spin" />
+                                  <span>Dispatching Route Batch...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Send size={16} />
+                                  <span>Dispatch Driver to this Route ({batch.passengerCount} Passengers)</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="no-driver-notice">
+                            <AlertCircle size={15} />
+                            <span>No driver currently registered for this corridor.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="module-container fade-in">
       {/* Toast Alert */}
@@ -4620,11 +5146,17 @@ const RideDispatch = () => {
       {/* Main Navigation Sub-Header Tabs */}
       <div className="dispatch-nav-container mb-4">
         <button 
+          className={`dispatch-nav-btn ${activeMainTab === 'route-pooling' ? 'active' : ''}`}
+          onClick={() => handleTabChange('route-pooling')}
+        >
+          <Navigation size={16} />
+          <span>Route Pooling (Max 5)</span>
+          <span className="dispatch-counter-pill orange-pill">{routeBatches.filter(b => b.status === 'Ready for Dispatch').length}</span>
+        </button>
+
+        <button 
           className={`dispatch-nav-btn ${activeMainTab === 'requests' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('requests');
-            setSelectedRide(null);
-          }}
+          onClick={() => handleTabChange('requests')}
         >
           <Car size={16} />
           <span>Monthly Pickup</span>
@@ -4633,10 +5165,7 @@ const RideDispatch = () => {
 
         <button 
           className={`dispatch-nav-btn ${activeMainTab === 'schedule-rides' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('schedule-rides');
-            setSelectedRide(null);
-          }}
+          onClick={() => handleTabChange('schedule-rides')}
         >
           <Calendar size={16} />
           <span>Schedule Rides</span>
@@ -4645,10 +5174,7 @@ const RideDispatch = () => {
 
         <button 
           className={`dispatch-nav-btn ${activeMainTab === 'travel-requests' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('travel-requests');
-            setSelectedRide(null);
-          }}
+          onClick={() => handleTabChange('travel-requests')}
         >
           <MapPin size={16} />
           <span>Travel & Tourism</span>
@@ -4657,10 +5183,7 @@ const RideDispatch = () => {
 
         <button 
           className={`dispatch-nav-btn ${activeMainTab === 'hire-driver' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('hire-driver');
-            setSelectedRide(null);
-          }}
+          onClick={() => handleTabChange('hire-driver')}
         >
           <Briefcase size={16} />
           <span>Hire Driver</span>
@@ -4668,23 +5191,8 @@ const RideDispatch = () => {
         </button>
 
         <button 
-          className={`dispatch-nav-btn ${activeMainTab === 'replacement-requests' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('replacement-requests');
-            setSelectedRide(null);
-          }}
-        >
-          <RefreshCw size={16} />
-          <span>Driver Replacement</span>
-          <span className="dispatch-counter-pill alert-pill">{replacementPendingCount}</span>
-        </button>
-
-        <button 
           className={`dispatch-nav-btn ${activeMainTab === 'driver-panel' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveMainTab('driver-panel');
-            setSelectedRide(null);
-          }}
+          onClick={() => handleTabChange('driver-panel')}
         >
           <Smartphone size={16} />
           <span>Driver Panel & Live Assigned Rides</span>
@@ -4693,7 +5201,9 @@ const RideDispatch = () => {
       </div>
 
       {/* Main View Switcher */}
-      {activeMainTab === 'requests' ? (
+      {activeMainTab === 'route-pooling' ? (
+        renderRoutePooling()
+      ) : activeMainTab === 'requests' ? (
         selectedRide ? renderDriverSelection() : renderRideRequests()
       ) : activeMainTab === 'schedule-rides' ? (
         selectedRide ? renderDriverSelection() : renderScheduleRides()
@@ -4708,7 +5218,7 @@ const RideDispatch = () => {
       )}
 
       {/* Passenger / Ride Details Modal */}
-      {viewPassengerModal && (
+      {viewPassengerModal && createPortal(
         <div className="modal-backdrop fade-in" onClick={() => setViewPassengerModal(null)}>
           <div className="modal-dialog-card glass-panel" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -4833,106 +5343,132 @@ const RideDispatch = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Flutter Driver Mobile App Preview Simulation Modal */}
-      {viewDriverModal && (
+      {viewDriverModal && createPortal(
         <div className="modal-backdrop fade-in" onClick={() => setViewDriverModal(null)}>
-          <div className="phone-preview-shell" onClick={e => e.stopPropagation()}>
-            <div className="phone-top-bar">
-              <span className="phone-time">09:41</span>
-              <div className="phone-notch"></div>
-              <button className="phone-close-btn" onClick={() => setViewDriverModal(null)}>
-                <X size={14} />
+          <div className="phone-modal-wrapper" onClick={e => e.stopPropagation()}>
+            <div className="phone-modal-top-bar">
+              <div className="phone-modal-title-chip">
+                <Smartphone size={14} />
+                <span>Driver App Simulation Preview</span>
+              </div>
+              <button 
+                type="button" 
+                className="phone-modal-close-pill" 
+                onClick={() => setViewDriverModal(null)}
+                title="Close simulation view (Esc)"
+              >
+                <X size={15} />
+                <span>Close Preview</span>
+                <kbd className="esc-key-badge">ESC</kbd>
               </button>
             </div>
 
-            <div className="phone-app-header">
-              <div className="d-flex align-items-center gap-2">
-                <div className="phone-driver-avatar">
-                  {(viewDriverModal.personalInfo?.name || 'D').charAt(0)}
-                </div>
-                <div>
-                  <h4 className="phone-driver-name">{viewDriverModal.personalInfo?.name}</h4>
-                  <div className="phone-driver-status">● Live Flutter Driver App Connected</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="phone-app-body">
-              <div className="section-heading-row">
-                <h5>Assigned Customer Trips</h5>
-                <span className="badge-count-pill">{getDriverAssignedTrips(viewDriverModal).length} Active</span>
+            <div className="phone-preview-shell">
+              <div className="phone-top-bar">
+                <span className="phone-time">09:41</span>
+                <div className="phone-notch"></div>
+                <button 
+                  type="button" 
+                  className="phone-close-btn" 
+                  onClick={() => setViewDriverModal(null)}
+                  title="Close Simulation"
+                >
+                  <X size={15} />
+                </button>
               </div>
 
-              {getDriverAssignedTrips(viewDriverModal).length === 0 ? (
-                <div className="phone-empty-state">
-                  <Clock size={32} className="text-secondary mb-2" />
-                  <p>No active ride assigned right now.</p>
-                  <span className="text-xs text-secondary">When admin dispatches a ride, it appears here instantly!</span>
+              <div className="phone-app-header">
+                <div className="d-flex align-items-center gap-2">
+                  <div className="phone-driver-avatar">
+                    {(viewDriverModal.personalInfo?.name || 'D').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h4 className="phone-driver-name">{viewDriverModal.personalInfo?.name || 'Driver'}</h4>
+                    <div className="phone-driver-status">● Live Flutter Driver App Connected</div>
+                  </div>
                 </div>
-              ) : (
-                <div className="phone-trips-list">
-                  {getDriverAssignedTrips(viewDriverModal).map((trip, idx) => (
-                    <div key={trip._id || idx} className="phone-trip-card">
-                      <div className="phone-trip-header">
-                        <span className="trip-badge-alert">NEW ASSIGNED RIDE</span>
-                        <span className="phone-fare font-bold">{trip.fareFormatted || trip.fare}</span>
-                      </div>
+              </div>
 
-                      <div className="phone-passenger-strip mt-2">
-                        <User size={14} className="text-primary" />
-                        <strong>{trip.passengerName || trip.customerName}</strong>
-                        <a href={`tel:${trip.passengerPhone || trip.customerPhone}`} className="phone-call-btn" title="Call Passenger">
-                          <Phone size={12} /> Call
-                        </a>
-                      </div>
+              <div className="phone-app-body">
+                <div className="section-heading-row">
+                  <h5>Assigned Customer Trips</h5>
+                  <span className="badge-count-pill">{getDriverAssignedTrips(viewDriverModal).length} Active</span>
+                </div>
 
-                      <div className="phone-route-box mt-2">
-                        <div className="phone-route-step">
-                          <div className="dot green-dot"></div>
-                          <div>
-                            <div className="step-label">PICKUP</div>
-                            <div className="step-text">{trip.pickupLocation}</div>
+                {getDriverAssignedTrips(viewDriverModal).length === 0 ? (
+                  <div className="phone-empty-state">
+                    <Clock size={32} className="text-secondary mb-2" />
+                    <p>No active ride assigned right now.</p>
+                    <span className="text-xs text-secondary">When admin dispatches a ride, it appears here instantly!</span>
+                  </div>
+                ) : (
+                  <div className="phone-trips-list">
+                    {getDriverAssignedTrips(viewDriverModal).map((trip, idx) => (
+                      <div key={trip._id || idx} className="phone-trip-card">
+                        <div className="phone-trip-header">
+                          <span className="trip-badge-alert">NEW ASSIGNED RIDE</span>
+                          <span className="phone-fare font-bold">{trip.fareFormatted || trip.fare}</span>
+                        </div>
+
+                        <div className="phone-passenger-strip mt-2">
+                          <User size={14} className="text-primary" />
+                          <strong>{trip.passengerName || trip.customerName}</strong>
+                          <a href={`tel:${trip.passengerPhone || trip.customerPhone}`} className="phone-call-btn" title="Call Passenger">
+                            <Phone size={12} /> Call
+                          </a>
+                        </div>
+
+                        <div className="phone-route-box mt-2">
+                          <div className="phone-route-step">
+                            <div className="dot green-dot"></div>
+                            <div>
+                              <div className="step-label">PICKUP</div>
+                              <div className="step-text">{trip.pickupLocation}</div>
+                            </div>
+                          </div>
+                          <div className="phone-step-line"></div>
+                          <div className="phone-route-step">
+                            <div className="dot red-dot"></div>
+                            <div>
+                              <div className="step-label">DESTINATION</div>
+                              <div className="step-text">{trip.dropoffLocation || trip.dropLocation}</div>
+                            </div>
                           </div>
                         </div>
-                        <div className="phone-step-line"></div>
-                        <div className="phone-route-step">
-                          <div className="dot red-dot"></div>
-                          <div>
-                            <div className="step-label">DESTINATION</div>
-                            <div className="step-text">{trip.dropoffLocation || trip.dropLocation}</div>
-                          </div>
+
+                        <div className="phone-actions-row mt-3">
+                          <button type="button" className="phone-nav-btn">
+                            <Navigation size={13} /> Start Navigation
+                          </button>
+                          <button type="button" className="phone-accept-btn">
+                            <CheckCircle size={13} /> Accept Trip
+                          </button>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                      <div className="phone-actions-row mt-3">
-                        <button className="phone-nav-btn">
-                          <Navigation size={13} /> Start Navigation
-                        </button>
-                        <button className="phone-accept-btn">
-                          <CheckCircle size={13} /> Accept Trip
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="phone-bottom-nav">
-              <div className="nav-item active"><Smartphone size={16} /><span>Trips</span></div>
-              <div className="nav-item"><DollarSign size={16} /><span>Earnings</span></div>
-              <div className="nav-item"><Star size={16} /><span>Rating</span></div>
-              <div className="nav-item"><User size={16} /><span>Profile</span></div>
+              <div className="phone-bottom-nav">
+                <div className="nav-item active"><Smartphone size={16} /><span>Trips</span></div>
+                <div className="nav-item"><DollarSign size={16} /><span>Earnings</span></div>
+                <div className="nav-item"><Star size={16} /><span>Rating</span></div>
+                <div className="nav-item"><User size={16} /><span>Profile</span></div>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Inline Fare Edit Modal */}
-      {fareModalRide && (
+      {fareModalRide && createPortal(
         <div className="modal-backdrop fade-in" onClick={() => !isSavingFareModal && setFareModalRide(null)}>
           <div className="fare-modal-card glass-panel" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -5022,11 +5558,12 @@ const RideDispatch = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Dedicated Dispatch Modal: Assign verified driver from /admin/drivers/verified */}
-      {dispatchModalRide && (
+      {dispatchModalRide && createPortal(
         <div className="modal-backdrop fade-in" onClick={() => setDispatchModalRide(null)}>
           <div className="modal-dialog-card glass-panel dispatch-modal-dialog" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -5182,10 +5719,14 @@ const RideDispatch = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
 export default RideDispatch;
+
+
+

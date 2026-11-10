@@ -1,4 +1,4 @@
-﻿import mongoose from "mongoose";
+import mongoose from "mongoose";
 import ScheduleRide from "../models/ScheduleRide.js";
 import { sendSuccess, sendError } from "../middleware/responseHandler.js";
 
@@ -199,6 +199,9 @@ export const updateScheduleRide = async (req, res, next) => {
     const io = req.app.get("io");
     if (io) {
       io.emit("schedule-ride-updated", { id, ...updateFields, scheduleRide: formatted });
+      if (updateFields.fare !== undefined) {
+        io.emit("fare_updated", { rideId: id, newFare: updateFields.fare, newFareFormatted: updateFields.fareFormatted, rideType: "Schedule Ride" });
+      }
       io.to("admin-room").emit("schedule-ride-updated", { id, ...updateFields, scheduleRide: formatted });
     }
 
@@ -207,3 +210,4 @@ export const updateScheduleRide = async (req, res, next) => {
     next(err);
   }
 };
+

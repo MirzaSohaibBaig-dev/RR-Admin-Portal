@@ -1,10 +1,11 @@
+import mongoose from 'mongoose';
 import Driver from '../models/Driver.js';
 import DriverRatingLog from '../models/DriverRatingLog.js';
 import { sendSuccess, sendError } from '../middleware/responseHandler.js';
 
 /**
  * GET /admin/ratings
- * Retrieve all drivers with rating metrics, completed rides, and KPI summary
+ * Retrieve all drivers with rating metrics, completed rides, pending ride reviews, and KPI summary
  */
 export const getDriversRatings = async (req, res) => {
   try {
@@ -12,6 +13,55 @@ export const getDriversRatings = async (req, res) => {
 
     // Fetch all rating logs to calculate monthly metrics & driver history
     const allLogs = await DriverRatingLog.find({}).sort({ createdAt: -1 }).lean();
+
+    // Fetch all real completed rides from riderequests collection
+    const db = mongoose.connection.db;
+    const completedRides = await db.collection('riderequests')
+      .find({ status: 'COMPLETED' })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .toArray()
+      .catch(() => []);
+
+    // Identify pending completed rides that need admin rating
+    const pendingRides = [];
+
+    for (const r of completedRides) {
+      const rideIdStr = r._id.toString();
+      const hasRatingLog = allLogs.some(l => l.rideId && l.rideId.toString() === rideIdStr);
+      const isAlreadyRated = Boolean(r.isRatedByAdmin || r.adminRating || hasRatingLog);
+
+      if (!isAlreadyRated) {
+        // Find assigned driver object
+        const rDriverStr = r.driver ? r.driver.toString() : (r.driverId ? r.driverId.toString() : '');
+        const rDriverCode = (r.assignedDriverCode || r.assignedDriverDetails?.driverCode || '').toString();
+
+        const matchedDriver = drivers.find(d => {
+          const dIdStr = d._id.toString();
+          const dCode = (d.driverReferenceId || d.driverId || '').toString();
+          return (rDriverStr && rDriverStr === dIdStr) || (rDriverCode && dCode && rDriverCode === dCode);
+        });
+
+        pendingRides.push({
+          _id: r._id,
+          rideId: r._id,
+          requestId: r.requestId || `REQ-${r._id.toString().slice(-4)}`,
+          completedAt: r.updatedAt || r.createdAt || new Date().toISOString(),
+          passengerName: r.passengerName || 'Passenger',
+          passengerPhone: r.passengerPhone || 'N/A',
+          pickup: r.pickupLocation || r.pickup || 'Pickup Location',
+          dropoff: r.dropoffLocation || r.destination || r.dropLocation || 'Drop-off Location',
+          fare: r.fareFormatted || ('Rs. ' + (r.fare || r.fareAmount || r.price || 0).toLocaleString()),
+          fareAmount: r.fare || r.fareAmount || r.price || 0,
+          serviceType: r.vehicleType || r.seatingArrangement || 'Standard',
+          driverId: matchedDriver?._id || r.driver || null,
+          driverName: matchedDriver ? (matchedDriver.Name || matchedDriver.name) : (r.assignedDriver || r.assignedDriverDetails?.name || 'Assigned Driver'),
+          driverPhone: matchedDriver ? (matchedDriver.PhoneNumber || matchedDriver.phone) : (r.assignedDriverPhone || r.assignedDriverDetails?.phone || ''),
+          driverCode: matchedDriver ? (matchedDriver.driverReferenceId || matchedDriver.driverId) : (r.assignedDriverCode || r.assignedDriverDetails?.driverCode || 'DRV'),
+          driverPhoto: matchedDriver?.driverPhoto?.url || matchedDriver?.profilePhoto || r.driverDetails?.profilePic || null,
+          vehicle: r.assignedDriverDetails?.vehicle || (matchedDriver?.vehicleDetails ? `${matchedDriver.vehicleDetails.make} ${matchedDriver.vehicleDetails.model}` : 'Toyota Corolla')
+        });
+      }
+    }
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -24,14 +74,24 @@ export const getDriversRatings = async (req, res) => {
     let requiringReviewCount = 0;
 
     const enrichedDrivers = drivers.map(d => {
+      const dIdStr = d._id.toString();
+      const dCode = (d.driverReferenceId || d.driverId || '').toString();
+
       const driverLogs = allLogs.filter(l => 
-        (l.driver && l.driver.toString() === d._id.toString()) || 
-        (l.driverReferenceId && l.driverReferenceId === (d.driverReferenceId || d.driverId))
+        (l.driver && l.driver.toString() === dIdStr) || 
+        (l.driverReferenceId && l.driverReferenceId === dCode)
       );
+
+      // Match actual completed rides from database
+      const driverCompletedRides = completedRides.filter(r => {
+        const rDriverStr = r.driver ? r.driver.toString() : (r.driverId ? r.driverId.toString() : '');
+        const rDriverCode = (r.assignedDriverCode || r.assignedDriverDetails?.driverCode || '').toString();
+        return (rDriverStr && rDriverStr === dIdStr) || (rDriverCode && dCode && rDriverCode === dCode);
+      });
 
       const isRated = Boolean(d.rating != null && Number(d.rating) > 0) || driverLogs.length > 0;
       const currentRating = isRated 
-        ? Number((driverLogs.length > 0 ? driverLogs[0].score : d.rating).toFixed(1))
+        ? Number((driverLogs.length > 0 ? (driverLogs.reduce((acc, c) => acc + c.score, 0) / driverLogs.length) : d.rating).toFixed(1))
         : null;
 
       if (isRated && currentRating != null) {
@@ -46,8 +106,8 @@ export const getDriversRatings = async (req, res) => {
       const lastRatedDate = lastLog?.createdAt || (isRated ? d.updatedAt : null);
       const ratedByName = lastLog?.ratedBy || (isRated ? 'Admin' : null);
 
-      // Authentic completed rides from DB
-      const completedRides = d.completedRides || d.totalRides || 0;
+      // Accurate completed rides count: DB completed rides or stored field
+      const completedRidesCount = Math.max(driverCompletedRides.length, d.completedRides || d.totalRides || 0);
 
       return {
         _id: d._id,
@@ -59,7 +119,7 @@ export const getDriversRatings = async (req, res) => {
         photo: d.driverPhoto?.url || d.profilePhoto || d.photo || null,
         status: d.verificationStatus || d.status || 'Pending',
         city: d.city || 'Islamabad',
-        completedRides,
+        completedRides: completedRidesCount,
         isRated,
         currentRating,
         ratingCount: driverLogs.length,
@@ -76,11 +136,13 @@ export const getDriversRatings = async (req, res) => {
       success: true,
       data: {
         drivers: enrichedDrivers,
+        pendingRides,
         kpis: {
           totalRatedDrivers: ratedCount,
           averageRating: averageRating,
           ratedThisMonth: logsThisMonth.length,
-          requiringReview: requiringReviewCount
+          requiringReview: requiringReviewCount,
+          pendingRidesCount: pendingRides.length
         }
       },
       message: 'Driver ratings retrieved successfully'
@@ -136,11 +198,11 @@ export const getDriverRatingHistory = async (req, res) => {
 
 /**
  * POST /admin/ratings
- * Admin submits or updates a driver rating
+ * Admin submits or updates a driver rating (optionally linked to a completed ride)
  */
 export const submitDriverRating = async (req, res) => {
   try {
-    const { driverId, score, performanceTags, adminRemarks } = req.body;
+    const { driverId, rideId, score, performanceTags, adminRemarks } = req.body;
 
     if (!driverId) {
       return sendError(res, 'Driver ID is required', 400);
@@ -165,11 +227,41 @@ export const submitDriverRating = async (req, res) => {
     const adminName = req.admin?.Name || req.admin?.name || 'Super Admin';
     const adminId = req.admin?._id || null;
 
-    // 1. Create audit rating log
+    let rideReference = '';
+    const db = mongoose.connection.db;
+
+    // 1. If rideId provided, update riderequests collection
+    if (rideId) {
+      try {
+        const rideObjectId = rideId.toString().match(/^[0-9a-fA-F]{24}$/) ? new mongoose.Types.ObjectId(rideId) : rideId;
+        const ride = await db.collection('riderequests').findOne({ _id: rideObjectId });
+        if (ride) {
+          rideReference = ride.requestId || `REQ-${ride._id.toString().slice(-4)}`;
+          await db.collection('riderequests').updateOne(
+            { _id: rideObjectId },
+            {
+              $set: {
+                isRatedByAdmin: true,
+                adminRating: numScore,
+                adminRatedAt: new Date(),
+                adminRatingTags: Array.isArray(performanceTags) ? performanceTags : [],
+                adminRatingRemarks: adminRemarks || ''
+              }
+            }
+          );
+        }
+      } catch (rideErr) {
+        console.error('Error linking ride to rating:', rideErr.message);
+      }
+    }
+
+    // 2. Create audit rating log
     const ratingLog = await DriverRatingLog.create({
       driver: driver._id,
       driverReferenceId: driver.driverReferenceId || driver.driverId || `DRV-${driver._id.toString().substring(18)}`,
       driverName: driver.Name || driver.name || 'Driver Partner',
+      rideId: (rideId && rideId.toString().match(/^[0-9a-fA-F]{24}$/)) ? new mongoose.Types.ObjectId(rideId) : null,
+      rideReference,
       score: numScore,
       performanceTags: Array.isArray(performanceTags) ? performanceTags : [],
       adminRemarks: adminRemarks || '',
@@ -177,8 +269,17 @@ export const submitDriverRating = async (req, res) => {
       ratedByAdminId: adminId
     });
 
-    // 2. Update Driver model with new rating
-    driver.rating = numScore;
+    // 3. Recalculate average rating from all logs for this driver
+    const driverLogs = await DriverRatingLog.find({
+      $or: [{ driver: driver._id }, { driverReferenceId: driver.driverReferenceId || driver.driverId }]
+    });
+
+    const avgRating = driverLogs.length > 0 
+      ? Number((driverLogs.reduce((acc, curr) => acc + curr.score, 0) / driverLogs.length).toFixed(1))
+      : numScore;
+
+    // 4. Update Driver model with new rating
+    driver.rating = avgRating;
     driver.lastRatedAt = new Date();
     driver.lastRatedBy = adminName;
     await driver.save();
@@ -193,7 +294,8 @@ export const submitDriverRating = async (req, res) => {
           rating: driver.rating,
           lastRatedAt: driver.lastRatedAt
         },
-        ratingLog
+        ratingLog,
+        rideReference
       }
     });
   } catch (err) {

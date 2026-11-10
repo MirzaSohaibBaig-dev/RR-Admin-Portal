@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Star, Users, Clock, AlertTriangle, Search, Filter, 
   Plus, Edit2, History, CheckCircle, X, ShieldCheck, 
-  TrendingUp, Calendar, ArrowRight, UserCheck, MessageSquare, Car, RotateCw, Sparkles 
+  TrendingUp, Calendar, ArrowRight, UserCheck, MessageSquare, Car, RotateCw, Sparkles,
+  MapPin, Check, Phone, Award
 } from 'lucide-react';
 import { BACKEND_URL } from '../utils/api';
 import './DriverRating.css';
@@ -35,16 +36,22 @@ const formatDriverCode = (id) => {
 
 const DriverRating = () => {
   const [drivers, setDrivers] = useState([]);
+  const [pendingRides, setPendingRides] = useState([]);
   const [kpis, setKpis] = useState({
     totalRatedDrivers: 0,
-    averageRating: 4.8,
+    averageRating: 0,
     ratedThisMonth: 0,
-    requiringReview: 0
+    requiringReview: 0,
+    pendingRidesCount: 0
   });
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Filters state
+  // Main View Tab: 'PendingRides' (Awaiting Rating) or 'Drivers' (Lifetime Driver Directory)
+  const [mainViewTab, setMainViewTab] = useState('PendingRides');
+
+  // Filters state for Driver Directory
   const [searchQuery, setSearchQuery] = useState('');
   const [ratingFilter, setRatingFilter] = useState('All');
   const [performanceFilter, setPerformanceFilter] = useState('All');
@@ -54,12 +61,15 @@ const DriverRating = () => {
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState(null);
+  const [selectedRide, setSelectedRide] = useState(null);
   const [historyLogs, setHistoryLogs] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Rating Form state
   const [ratingForm, setRatingForm] = useState({
     driverId: '',
+    rideId: '',
+    rideReference: '',
     score: 5.0,
     hoverScore: 0,
     selectedTags: ['Punctual & On-Time', 'Safe Driving'],
@@ -71,7 +81,7 @@ const DriverRating = () => {
     setTimeout(() => setToastMessage(''), 3500);
   };
 
-  // Fetch Drivers Ratings & KPIs
+  // Fetch Drivers Ratings, Pending Rides & KPIs
   const fetchRatings = async () => {
     try {
       setLoading(true);
@@ -81,10 +91,16 @@ const DriverRating = () => {
       });
       const data = await res.json();
 
-      if (data.success && data.data?.drivers) {
-        setDrivers(data.data.drivers);
+      if (data.success && data.data) {
+        setDrivers(data.data.drivers || []);
+        const pRides = data.data.pendingRides || [];
+        setPendingRides(pRides);
         if (data.data.kpis) {
           setKpis(data.data.kpis);
+        }
+        // If there are pending rides, start on the Pending Reviews view
+        if (pRides.length > 0 && mainViewTab !== 'Drivers') {
+          setMainViewTab('PendingRides');
         }
       }
     } catch (err) {
@@ -99,11 +115,32 @@ const DriverRating = () => {
   }, []);
 
   // Open "Give Rating" or "Update Rating" Modal
-  const openRatingModal = (driver = null) => {
-    if (driver) {
+  const openRatingModal = (driver = null, ride = null) => {
+    setSelectedRide(ride);
+    if (ride) {
+      const targetDriver = drivers.find(d => (d._id || d.id) === ride.driverId) || {
+        _id: ride.driverId,
+        name: ride.driverName,
+        driverId: ride.driverCode,
+        photo: ride.driverPhoto,
+        phone: ride.driverPhone
+      };
+      setSelectedDriver(targetDriver);
+      setRatingForm({
+        driverId: targetDriver._id || ride.driverId,
+        rideId: ride.rideId || ride._id,
+        rideReference: ride.requestId,
+        score: 5.0,
+        hoverScore: 0,
+        selectedTags: ['Punctual & On-Time', 'Safe Driving'],
+        adminRemarks: `Completed ride ${ride.requestId} (${ride.pickup} to ${ride.dropoff})`
+      });
+    } else if (driver) {
       setSelectedDriver(driver);
       setRatingForm({
         driverId: driver._id || driver.id,
+        rideId: '',
+        rideReference: '',
         score: driver.currentRating || 5.0,
         hoverScore: 0,
         selectedTags: driver.lastTags?.length > 0 ? driver.lastTags : ['Punctual & On-Time', 'Safe Driving'],
@@ -114,6 +151,8 @@ const DriverRating = () => {
       setSelectedDriver(defaultFirstDriver || null);
       setRatingForm({
         driverId: defaultFirstDriver?._id || '',
+        rideId: '',
+        rideReference: '',
         score: 5.0,
         hoverScore: 0,
         selectedTags: ['Top Performer', 'Safe Driving'],
@@ -170,6 +209,7 @@ const DriverRating = () => {
     }
 
     try {
+      setSubmitting(true);
       const token = localStorage.getItem('admin_token');
       const res = await fetch(`${BACKEND_URL}/admin/ratings`, {
         method: 'POST',
@@ -179,6 +219,7 @@ const DriverRating = () => {
         },
         body: JSON.stringify({
           driverId: ratingForm.driverId,
+          rideId: ratingForm.rideId || undefined,
           score: ratingForm.score,
           performanceTags: ratingForm.selectedTags,
           adminRemarks: ratingForm.adminRemarks
@@ -188,33 +229,23 @@ const DriverRating = () => {
       const data = await res.json();
 
       if (data.success) {
-        const targetDriver = drivers.find(d => (d._id || d.id) === ratingForm.driverId);
+        const targetDriver = drivers.find(d => (d._id || d.id) === ratingForm.driverId) || selectedDriver;
         const driverName = targetDriver?.name || 'Driver';
-
-        // Update local state reactively
-        setDrivers(prev => prev.map(d => {
-          if ((d._id || d.id) === ratingForm.driverId) {
-            return {
-              ...d,
-              currentRating: Number(ratingForm.score.toFixed(1)),
-              lastRated: new Date().toISOString(),
-              ratedBy: 'Super Admin',
-              lastRemarks: ratingForm.adminRemarks,
-              lastTags: ratingForm.selectedTags
-            };
-          }
-          return d;
-        }));
 
         showToast(`✓ Rating of ${ratingForm.score}★ assigned to ${driverName} successfully!`);
         setIsRatingModalOpen(false);
+        // Refresh all data from server
+        await fetchRatings();
       } else {
         alert(data.message || 'Failed to submit rating.');
       }
     } catch (err) {
       console.error('Rating submit error:', err);
-      showToast(`✓ Rating of ${ratingForm.score}★ updated successfully.`);
+      showToast(`Rating of ${ratingForm.score}★ updated.`);
       setIsRatingModalOpen(false);
+      await fetchRatings();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -287,7 +318,7 @@ const DriverRating = () => {
         <div>
           <h1 className="page-title">Driver Rating</h1>
           <p className="page-subtitle">
-            Admin can rate drivers based on their ride performance and manage previous driver ratings.
+            Admin can rate drivers based on their completed ride performance and manage driver evaluations.
           </p>
         </div>
         <div className="header-actions-group">
@@ -302,11 +333,25 @@ const DriverRating = () => {
         </div>
       </div>
 
-      {/* Horizontal KPI Cards Row (Exact Driver Approval Grid Style) */}
+      {/* Horizontal KPI Cards Row */}
       <div className="driver-kpi-grid">
         <div 
-          className={`driver-kpi-card ${activeKpiTab === 'All' ? 'active' : ''}`}
-          onClick={() => setActiveKpiTab('All')}
+          className={`driver-kpi-card ${mainViewTab === 'PendingRides' ? 'active' : ''}`}
+          onClick={() => setMainViewTab('PendingRides')}
+          style={{ borderLeft: (kpis.pendingRidesCount > 0 ? '4px solid #f59e0b' : undefined) }}
+        >
+          <div className="kpi-content">
+            <div className="kpi-label">Awaiting Ride Rating</div>
+            <div className="kpi-value text-warning">{kpis.pendingRidesCount ?? pendingRides.length}</div>
+          </div>
+          <div className="kpi-icon-soft bg-warning-light text-warning">
+            <Clock size={20} />
+          </div>
+        </div>
+
+        <div 
+          className={`driver-kpi-card ${mainViewTab === 'Drivers' && activeKpiTab === 'All' ? 'active' : ''}`}
+          onClick={() => { setMainViewTab('Drivers'); setActiveKpiTab('All'); }}
         >
           <div className="kpi-content">
             <div className="kpi-label">Total Rated Drivers</div>
@@ -318,36 +363,23 @@ const DriverRating = () => {
         </div>
 
         <div 
-          className={`driver-kpi-card ${activeKpiTab === 'High' ? 'active' : ''}`}
-          onClick={() => setActiveKpiTab('High')}
+          className={`driver-kpi-card ${mainViewTab === 'Drivers' && activeKpiTab === 'High' ? 'active' : ''}`}
+          onClick={() => { setMainViewTab('Drivers'); setActiveKpiTab('High'); }}
         >
           <div className="kpi-content">
             <div className="kpi-label">Average Driver Rating</div>
-            <div className="kpi-value text-warning">
+            <div className="kpi-value text-success">
               {kpis.averageRating ?? 0} <span className="kpi-unit">★</span>
             </div>
           </div>
-          <div className="kpi-icon-soft bg-warning-light text-warning">
+          <div className="kpi-icon-soft bg-success-light text-success">
             <Star size={20} className="fill-current" />
           </div>
         </div>
 
         <div 
-          className={`driver-kpi-card ${activeKpiTab === 'Month' ? 'active' : ''}`}
-          onClick={() => setActiveKpiTab('Month')}
-        >
-          <div className="kpi-content">
-            <div className="kpi-label">Drivers Rated This Month</div>
-            <div className="kpi-value text-success">{kpis.ratedThisMonth ?? 0}</div>
-          </div>
-          <div className="kpi-icon-soft bg-success-light text-success">
-            <TrendingUp size={20} />
-          </div>
-        </div>
-
-        <div 
-          className={`driver-kpi-card ${activeKpiTab === 'Review' ? 'active' : ''}`}
-          onClick={() => setActiveKpiTab('Review')}
+          className={`driver-kpi-card ${mainViewTab === 'Drivers' && activeKpiTab === 'Review' ? 'active' : ''}`}
+          onClick={() => { setMainViewTab('Drivers'); setActiveKpiTab('Review'); }}
         >
           <div className="kpi-content">
             <div className="kpi-label">Drivers Requiring Review</div>
@@ -359,225 +391,354 @@ const DriverRating = () => {
         </div>
       </div>
 
-      {/* Main Table Card */}
+      {/* Main Container Card */}
       <div className="table-container-card">
-        {/* Search & Multi-Filter Bar */}
-        <div className="rating-filters-bar">
-          <div className="search-input-box">
-            <Search size={16} className="search-icon" />
-            <input 
-              type="text" 
-              placeholder="Search drivers by name, driver ID, phone..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="filters-row-right">
-            <div className="filter-dropdown-wrap">
-              <label className="filter-label">RATING:</label>
-              <select 
-                value={ratingFilter} 
-                onChange={e => setRatingFilter(e.target.value)}
-                className="filter-select"
-              >
-                <option value="All">All Ratings</option>
-                <option value="5">5.0 Stars (★★★★★)</option>
-                <option value="4+">4.0+ Stars</option>
-                <option value="3+">3.0 - 3.9 Stars</option>
-                <option value="<3">Below 3.0 Stars</option>
-              </select>
-            </div>
-
-            <div className="filter-dropdown-wrap">
-              <label className="filter-label">PERFORMANCE:</label>
-              <select 
-                value={performanceFilter} 
-                onChange={e => setPerformanceFilter(e.target.value)}
-                className="filter-select"
-              >
-                <option value="All">All Performance</option>
-                <option value="Top Performer">Top Performer</option>
-                <option value="Punctual & On-Time">Punctual & On-Time</option>
-                <option value="Safe Driving">Safe Driving</option>
-                <option value="Clean & Maintained Vehicle">Clean Vehicle</option>
-              </select>
-            </div>
-          </div>
+        {/* Top View Selector Tabs */}
+        <div className="rating-view-tabs">
+          <button 
+            type="button" 
+            className={`rating-view-tab ${mainViewTab === 'PendingRides' ? 'active' : ''}`}
+            onClick={() => setMainViewTab('PendingRides')}
+          >
+            <Clock size={16} />
+            <span>Completed Rides Awaiting Rating</span>
+            <span className={`view-tab-badge ${pendingRides.length > 0 ? 'warning' : 'neutral'}`}>
+              {pendingRides.length}
+            </span>
+          </button>
+          <button 
+            type="button" 
+            className={`rating-view-tab ${mainViewTab === 'Drivers' ? 'active' : ''}`}
+            onClick={() => setMainViewTab('Drivers')}
+          >
+            <Users size={16} />
+            <span>Driver Directory & Lifetime Ratings</span>
+            <span className="view-tab-badge neutral">{drivers.length}</span>
+          </button>
         </div>
 
-        {/* Drivers Rating Table */}
-        <div className="table-content">
-          <table className="clean-table driver-rating-table">
-            <colgroup>
-              <col style={{ minWidth: '220px', width: '22%' }} />
-              <col style={{ minWidth: '130px', width: '13%' }} />
-              <col style={{ minWidth: '140px', width: '14%' }} />
-              <col style={{ minWidth: '180px', width: '18%' }} />
-              <col style={{ minWidth: '130px', width: '13%' }} />
-              <col style={{ minWidth: '120px', width: '10%' }} />
-              <col style={{ minWidth: '180px', width: '10%' }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Driver</th>
-                <th>Driver ID</th>
-                <th>Completed Rides</th>
-                <th>Current Rating</th>
-                <th>Last Rated</th>
-                <th>Rated By</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDrivers.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="text-center py-5 text-secondary">
-                    <Star size={36} className="mb-2 text-secondary opacity-40" />
-                    <div>No drivers found matching current rating filters.</div>
-                  </td>
-                </tr>
-              ) : (
-                filteredDrivers.map(driver => {
-                  const isRated = driver.isRated && driver.currentRating != null;
-                  const ratingVal = isRated ? driver.currentRating : null;
-                  const ridesCount = driver.completedRides || 0;
-                  const isTopPerformer = isRated && ratingVal >= 4.8;
-                  const formattedCode = formatDriverCode(driver.driverId);
+        {/* ========================================================================= */}
+        {/* TAB 1: Completed Rides Awaiting Rating (Real-Time Queue)                  */}
+        {/* ========================================================================= */}
+        {mainViewTab === 'PendingRides' && (
+          <div className="pending-rides-view-container">
+            {pendingRides.length === 0 ? (
+              <div className="empty-reviews-state">
+                <div className="empty-icon-wrap">
+                  <CheckCircle size={44} className="text-success" />
+                </div>
+                <h3>All Completed Rides Reviewed!</h3>
+                <p>
+                  There are no completed rides waiting for admin rating right now. As soon as a ride finishes in dispatch, it will appear here for evaluation.
+                </p>
+                <button 
+                  type="button" 
+                  className="secondary-btn btn-sm mt-3"
+                  onClick={() => setMainViewTab('Drivers')}
+                >
+                  <Users size={14} /> View Driver Directory
+                </button>
+              </div>
+            ) : (
+              <div className="pending-rides-list">
+                <div className="pending-rides-banner">
+                  <div className="banner-text">
+                    <Sparkles size={16} className="text-warning" />
+                    <span>
+                      <strong>{pendingRides.length} Completed Ride(s)</strong> require admin rating. Evaluate each ride to keep driver ratings accurate.
+                    </span>
+                  </div>
+                </div>
 
-                  return (
-                    <tr key={driver._id || driver.id}>
-                      {/* Driver Name & Details */}
-                      <td>
-                        <div className="driver-profile-cell">
-                          {driver.photo ? (
-                            <img 
-                              src={driver.photo} 
-                              alt={driver.name} 
-                              className="driver-table-avatar" 
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                if (e.currentTarget.nextElementSibling) {
-                                  e.currentTarget.nextElementSibling.style.display = 'flex';
-                                }
-                              }}
-                            />
-                          ) : null}
-                          <div 
-                            className="driver-avatar-placeholder"
-                            style={{ display: driver.photo ? 'none' : 'flex' }}
-                          >
-                            {(driver.name || 'D').charAt(0).toUpperCase()}
+                <div className="pending-rides-grid">
+                  {pendingRides.map(ride => (
+                    <div key={ride._id || ride.rideId} className="pending-ride-card">
+                      <div className="ride-card-header">
+                        <div className="ride-id-tag">
+                          <Car size={14} />
+                          <span>{ride.requestId}</span>
+                        </div>
+                        <div className="ride-completed-time">
+                          <Clock size={13} />
+                          <span>Completed {new Date(ride.completedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+
+                      <div className="ride-card-body">
+                        {/* Driver Profile */}
+                        <div className="ride-driver-box">
+                          {ride.driverPhoto ? (
+                            <img src={ride.driverPhoto} alt={ride.driverName} className="ride-driver-avatar" />
+                          ) : (
+                            <div className="ride-driver-avatar-fallback">{ride.driverName.charAt(0)}</div>
+                          )}
+                          <div>
+                            <div className="ride-driver-name">{ride.driverName}</div>
+                            <div className="ride-driver-sub">{ride.driverCode} • {ride.driverPhone}</div>
+                            <div className="ride-driver-vehicle">{ride.vehicle}</div>
                           </div>
-                          <div className="driver-info-meta">
-                            <div className="driver-name-row">
-                              <span className="driver-full-name">{driver.name}</span>
-                              {isTopPerformer && (
-                                <span className="top-badge" title="Top Rated Driver">★ Top</span>
-                              )}
+                        </div>
+
+                        {/* Route Details */}
+                        <div className="ride-route-box">
+                          <div className="route-point pickup">
+                            <div className="route-dot pickup-dot"></div>
+                            <div className="route-text">
+                              <span className="route-label">PICKUP:</span>
+                              <span className="route-address" title={ride.pickup}>{ride.pickup}</span>
                             </div>
-                            <span className="driver-phone-text">{driver.phone}</span>
+                          </div>
+                          <div className="route-line-v"></div>
+                          <div className="route-point dropoff">
+                            <div className="route-dot dropoff-dot"></div>
+                            <div className="route-text">
+                              <span className="route-label">DROPOFF:</span>
+                              <span className="route-address" title={ride.dropoff}>{ride.dropoff}</span>
+                            </div>
                           </div>
                         </div>
-                      </td>
 
-                      {/* Driver ID */}
-                      <td>
-                        <span 
-                          className="driver-id-badge" 
-                          title={`Full Driver ID: ${driver.driverId || 'N/A'}`}
+                        {/* Passenger & Fare */}
+                        <div className="ride-meta-box">
+                          <div className="meta-item">
+                            <span className="meta-label">Passenger:</span>
+                            <span className="meta-value">{ride.passengerName}</span>
+                          </div>
+                          <div className="meta-item">
+                            <span className="meta-label">Fare Collected:</span>
+                            <span className="meta-value fare-highlight">{ride.fare}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="ride-card-footer">
+                        <div className="ride-status-pill">
+                          <CheckCircle size={14} className="text-success" />
+                          <span>Ready for Evaluation</span>
+                        </div>
+                        <button 
+                          type="button" 
+                          className="rate-ride-cta-btn"
+                          onClick={() => openRatingModal(null, ride)}
                         >
-                          {formattedCode}
-                        </span>
-                      </td>
+                          <Star size={15} className="fill-current" />
+                          <span>Rate Driver for this Ride</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
-                      {/* Completed Rides */}
-                      <td>
-                        <div className="completed-rides-pill">
-                          <Car size={13} className="text-primary flex-shrink-0" />
-                          <span><strong>{ridesCount}</strong> rides</span>
-                        </div>
-                      </td>
+        {/* ========================================================================= */}
+        {/* TAB 2: Driver Directory & Lifetime Ratings                                */}
+        {/* ========================================================================= */}
+        {mainViewTab === 'Drivers' && (
+          <div>
+            {/* Search & Multi-Filter Bar */}
+            <div className="rating-filters-bar">
+              <div className="search-input-box">
+                <Search size={16} className="search-icon" />
+                <input 
+                  type="text" 
+                  placeholder="Search drivers by name, driver ID, phone..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
 
-                      {/* Current Rating */}
-                      <td>
-                        <div className="rating-cell-display">
-                          {isRated ? (
-                            <>
-                              <div className="stars-row">
-                                {renderStarRating(ratingVal)}
-                              </div>
-                              <span className="rating-score-num">{ratingVal.toFixed(1)}</span>
-                            </>
-                          ) : (
-                            <span className="unrated-tag">Unrated</span>
-                          )}
-                        </div>
-                      </td>
+              <div className="filters-row-right">
+                <div className="filter-dropdown-wrap">
+                  <label className="filter-label">RATING:</label>
+                  <select 
+                    value={ratingFilter} 
+                    onChange={e => setRatingFilter(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="All">All Ratings</option>
+                    <option value="5">5.0 Stars (★★★★★)</option>
+                    <option value="4+">4.0+ Stars</option>
+                    <option value="3+">3.0 - 3.9 Stars</option>
+                    <option value="<3">Below 3.0 Stars</option>
+                  </select>
+                </div>
 
-                      {/* Last Rated Date */}
-                      <td>
-                        <div className="date-cell">
-                          {driver.lastRated ? (
-                            <>
-                              <Calendar size={13} className="text-secondary" />
-                              <span>
-                                {new Date(driver.lastRated).toLocaleDateString('en-GB', {
-                                  day: '2-digit',
-                                  month: 'short',
-                                  year: 'numeric'
-                                })}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-secondary" style={{ color: '#94a3b8' }}>-</span>
-                          )}
-                        </div>
-                      </td>
+                <div className="filter-dropdown-wrap">
+                  <label className="filter-label">PERFORMANCE:</label>
+                  <select 
+                    value={performanceFilter} 
+                    onChange={e => setPerformanceFilter(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="All">All Performance</option>
+                    <option value="Top Performer">Top Performer</option>
+                    <option value="Punctual & On-Time">Punctual & On-Time</option>
+                    <option value="Safe Driving">Safe Driving</option>
+                    <option value="Clean & Maintained Vehicle">Clean Vehicle</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
-                      {/* Rated By */}
-                      <td>
-                        {driver.ratedBy ? (
-                          <span className="admin-author-badge">
-                            <ShieldCheck size={12} />
-                            <span>{driver.ratedBy}</span>
-                          </span>
-                        ) : (
-                          <span className="text-secondary" style={{ color: '#94a3b8' }}>-</span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td>
-                        <div className="rating-action-buttons">
-                          <button 
-                            className="view-history-btn" 
-                            title="View Previous Rating History"
-                            onClick={() => openHistoryModal(driver)}
-                          >
-                            <History size={13} />
-                            <span>View</span>
-                          </button>
-                          <button 
-                            className="update-rating-btn" 
-                            title="Update Driver Rating"
-                            onClick={() => openRatingModal(driver)}
-                          >
-                            <Edit2 size={13} />
-                            <span>Update Rating</span>
-                          </button>
-                        </div>
+            {/* Drivers Rating Table */}
+            <div className="table-content">
+              <table className="clean-table driver-rating-table">
+                <colgroup>
+                  <col style={{ minWidth: '220px', width: '22%' }} />
+                  <col style={{ minWidth: '130px', width: '13%' }} />
+                  <col style={{ minWidth: '140px', width: '14%' }} />
+                  <col style={{ minWidth: '180px', width: '18%' }} />
+                  <col style={{ minWidth: '130px', width: '13%' }} />
+                  <col style={{ minWidth: '120px', width: '10%' }} />
+                  <col style={{ minWidth: '180px', width: '10%' }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Driver</th>
+                    <th>Driver ID</th>
+                    <th>Completed Rides</th>
+                    <th>Current Rating</th>
+                    <th>Last Rated</th>
+                    <th>Rated By</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDrivers.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-5 text-secondary">
+                        <Star size={36} className="mb-2 text-secondary opacity-40" />
+                        <div>No drivers found matching current rating filters.</div>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ) : (
+                    filteredDrivers.map(driver => {
+                      const isRated = driver.isRated && driver.currentRating != null;
+                      const ratingVal = isRated ? driver.currentRating : null;
+                      const ridesCount = driver.completedRides || 0;
+                      const isTopPerformer = isRated && ratingVal >= 4.8;
+                      const formattedCode = formatDriverCode(driver.driverId);
+
+                      return (
+                        <tr key={driver._id || driver.id}>
+                          {/* Driver Name & Details */}
+                          <td>
+                            <div className="driver-profile-cell">
+                              {driver.photo ? (
+                                <img 
+                                  src={driver.photo} 
+                                  alt={driver.name} 
+                                  className="driver-table-avatar" 
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    if (e.currentTarget.nextElementSibling) {
+                                      e.currentTarget.nextElementSibling.style.display = 'flex';
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <div className="driver-avatar-placeholder" style={{ display: driver.photo ? 'none' : 'flex' }}>
+                                {driver.name.charAt(0)}
+                              </div>
+                              <div className="driver-profile-info">
+                                <div className="driver-fullname-row">
+                                  <span className="driver-name-text">{driver.name}</span>
+                                  {isTopPerformer && (
+                                    <span className="top-performer-mini-badge" title="Top Rated Performer">
+                                      ★ Top
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="driver-phone-subtext">{driver.phone}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Driver Reference Code */}
+                          <td>
+                            <span className="driver-id-badge">{formattedCode}</span>
+                          </td>
+
+                          {/* Completed Rides */}
+                          <td>
+                            <div className="completed-rides-cell">
+                              <span className="rides-count-tag">
+                                <Car size={13} />
+                                <strong>{ridesCount}</strong> rides
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Current Rating */}
+                          <td>
+                            {isRated ? (
+                              <div className="rating-score-display">
+                                <div className="stars-cluster">
+                                  {renderStarRating(ratingVal)}
+                                </div>
+                                <span className="score-number-bold">{ratingVal}</span>
+                                {driver.ratingCount > 0 && (
+                                  <span className="ratings-total-sub">({driver.ratingCount} reviews)</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="unrated-badge">Unrated</span>
+                            )}
+                          </td>
+
+                          {/* Last Rated Date */}
+                          <td>
+                            <span className="last-rated-date">
+                              {driver.lastRated 
+                                ? new Date(driver.lastRated).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                                : '—'
+                              }
+                            </span>
+                          </td>
+
+                          {/* Rated By */}
+                          <td>
+                            <span className="rated-by-name">
+                              {driver.ratedBy ? driver.ratedBy : '—'}
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td>
+                            <div className="rating-action-buttons">
+                              <button 
+                                className="view-history-btn" 
+                                title="View Previous Rating History"
+                                onClick={() => openHistoryModal(driver)}
+                              >
+                                <History size={13} />
+                                <span>History</span>
+                              </button>
+                              <button 
+                                className="update-rating-btn" 
+                                title="Update Driver Rating"
+                                onClick={() => openRatingModal(driver)}
+                              >
+                                <Edit2 size={13} />
+                                <span>Rate</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Rating Rule Box & Customer Rating Note (Wireframe Info Section) */}
+      {/* Rating Rule Box & Customer Rating Note (Info Section) */}
       <div className="rating-info-cards-grid mt-4">
         <div className="rating-rule-card">
           <div className="card-header-icon">
@@ -620,10 +781,10 @@ const DriverRating = () => {
           </div>
           <ArrowRight size={18} className="flow-arrow" />
           
-          <div className="flow-step-box">
+          <div className="flow-step-box highlight">
             <div className="step-number">2</div>
-            <div className="step-title">Admin Reviews Performance</div>
-            <div className="step-desc">Adherence, punctuality, & cleanliness</div>
+            <div className="step-title">Enters Awaiting Review Queue</div>
+            <div className="step-desc">Appears in completed rides list</div>
           </div>
           <ArrowRight size={18} className="flow-arrow" />
 
@@ -641,7 +802,7 @@ const DriverRating = () => {
           </div>
           <ArrowRight size={18} className="flow-arrow" />
 
-          <div className="flow-step-box highlight">
+          <div className="flow-step-box">
             <div className="step-number">5</div>
             <div className="step-title">Smart Selection Priority</div>
             <div className="step-desc">Higher rated drivers recommended first</div>
@@ -658,38 +819,58 @@ const DriverRating = () => {
             <div className="modal-header">
               <div className="modal-title-group">
                 <Star size={22} className="text-warning fill-current" />
-                <h2>{selectedDriver ? `Rate Driver: ${selectedDriver.name}` : 'Give Driver Rating'}</h2>
+                <h2>
+                  {selectedRide 
+                    ? `Rate Driver for Ride: ${selectedRide.requestId}` 
+                    : (selectedDriver ? `Rate Driver: ${selectedDriver.name}` : 'Give Driver Rating')
+                  }
+                </h2>
               </div>
               <button className="icon-btn" onClick={() => setIsRatingModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
 
+            {selectedRide && (
+              <div className="modal-ride-context-banner">
+                <div className="context-title">
+                  <Car size={16} />
+                  <strong>Ride {selectedRide.requestId} • {selectedRide.fare}</strong>
+                  <span className="context-passenger">Passenger: {selectedRide.passengerName}</span>
+                </div>
+                <div className="context-route">
+                  <span>{selectedRide.pickup}</span> ➔ <span>{selectedRide.dropoff}</span>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleRatingSubmit} className="modal-form">
               {/* Driver Selector if not preset */}
-              <div className="form-group mb-3">
-                <label className="form-label">Select Driver to Evaluate</label>
-                <select 
-                  className="form-select"
-                  value={ratingForm.driverId}
-                  onChange={e => {
-                    const d = drivers.find(drv => (drv._id || drv.id) === e.target.value);
-                    setSelectedDriver(d || null);
-                    setRatingForm(prev => ({
-                      ...prev,
-                      driverId: e.target.value,
-                      score: d?.currentRating || 5.0
-                    }));
-                  }}
-                  required
-                >
-                  {drivers.map(d => (
-                    <option key={d._id || d.id} value={d._id || d.id}>
-                      {d.name} ({d.driverId}) — Current: {d.currentRating}★
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!selectedRide && (
+                <div className="form-group mb-3">
+                  <label className="form-label">Select Driver to Evaluate</label>
+                  <select 
+                    className="form-select"
+                    value={ratingForm.driverId}
+                    onChange={e => {
+                      const d = drivers.find(drv => (drv._id || drv.id) === e.target.value);
+                      setSelectedDriver(d || null);
+                      setRatingForm(prev => ({
+                        ...prev,
+                        driverId: e.target.value,
+                        score: d?.currentRating || 5.0
+                      }));
+                    }}
+                    required
+                  >
+                    {drivers.map(d => (
+                      <option key={d._id || d.id} value={d._id || d.id}>
+                        {d.name} ({d.driverId}) — Current: {d.currentRating ? `${d.currentRating}★` : 'Unrated'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Interactive Star Picker */}
               <div className="rating-picker-section mb-4">
@@ -752,30 +933,35 @@ const DriverRating = () => {
                 </div>
               </div>
 
-              {/* Evaluation Remarks */}
+              {/* Remarks Textarea */}
               <div className="form-group mb-4">
-                <label className="form-label">Admin Evaluation Notes & Remarks</label>
+                <label className="form-label">Admin Evaluation Remarks</label>
                 <textarea 
                   className="form-textarea"
-                  rows="3"
-                  placeholder="e.g. Excellent vehicle maintenance, strictly adhered to route schedule, positive demeanor..."
+                  rows={3}
+                  placeholder="e.g. Completed ride safely, very polite with rider, vehicle clean..."
                   value={ratingForm.adminRemarks}
                   onChange={e => setRatingForm(prev => ({ ...prev, adminRemarks: e.target.value }))}
                 />
               </div>
 
-              {/* Modal Actions */}
-              <div className="modal-footer">
+              {/* Modal Buttons */}
+              <div className="modal-actions-row">
                 <button 
                   type="button" 
-                  className="cancel-btn" 
+                  className="secondary-btn" 
                   onClick={() => setIsRatingModalOpen(false)}
+                  disabled={submitting}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="primary-btn">
-                  <Star size={16} />
-                  <span>Save Driver Rating</span>
+                <button 
+                  type="submit" 
+                  className="primary-btn submit-rating-btn"
+                  disabled={submitting}
+                >
+                  <Award size={16} />
+                  <span>{submitting ? 'Saving...' : (selectedRide ? 'Submit Ride Rating' : 'Save Driver Rating')}</span>
                 </button>
               </div>
             </form>
@@ -784,84 +970,103 @@ const DriverRating = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 2: View Rating History Modal                                        */}
+      {/* MODAL 2: Rating History Modal                                             */}
       {/* ========================================================================= */}
-      {isHistoryModalOpen && (
+      {isHistoryModalOpen && selectedDriver && (
         <div className="modal-backdrop fade-in" onClick={() => setIsHistoryModalOpen(false)}>
           <div className="modal-card history-modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title-group">
-                <History size={22} className="text-primary" />
-                <h2>Rating Audit History: {selectedDriver?.name}</h2>
+                <History size={20} className="text-primary" />
+                <h2>Rating Audit History: {selectedDriver.name}</h2>
               </div>
               <button className="icon-btn" onClick={() => setIsHistoryModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
 
-            <div className="modal-body p-4">
-              <div className="driver-summary-header mb-4">
-                <div>
-                  <h4 className="font-bold text-lg">{selectedDriver?.name}</h4>
-                  <span className="text-sm text-secondary">Driver ID: {selectedDriver?.driverId}</span>
-                </div>
-                <div className="current-badge-box">
-                  <span className="text-xs text-secondary">Current Calibrated Rating:</span>
-                  <div className="rating-score-num text-xl text-warning font-bold">
-                    ★ {selectedDriver?.currentRating || 4.8}
+            <div className="history-modal-body">
+              {/* Driver Summary Mini Banner */}
+              <div className="driver-history-summary-box">
+                <div className="d-flex align-items-center gap-3">
+                  {selectedDriver.photo ? (
+                    <img src={selectedDriver.photo} alt={selectedDriver.name} className="driver-table-avatar large" />
+                  ) : (
+                    <div className="driver-avatar-placeholder large">{selectedDriver.name.charAt(0)}</div>
+                  )}
+                  <div>
+                    <h3 className="m-0 font-bold">{selectedDriver.name}</h3>
+                    <div className="text-secondary text-sm">
+                      ID: {formatDriverCode(selectedDriver.driverId)} • {selectedDriver.phone}
+                    </div>
                   </div>
+                </div>
+                <div className="history-summary-rating">
+                  <div className="big-rating-number">
+                    {selectedDriver.currentRating ? selectedDriver.currentRating : '—'}
+                  </div>
+                  <div className="stars-mini">
+                    {selectedDriver.currentRating ? renderStarRating(selectedDriver.currentRating) : null}
+                  </div>
+                  <span className="text-xs text-secondary">
+                    {historyLogs.length} total logged evaluations
+                  </span>
                 </div>
               </div>
 
+              {/* History Timeline */}
               {historyLoading ? (
-                <div className="py-5 text-center text-secondary">
-                  <RotateCw size={24} className="spin mb-2" />
-                  <div>Loading audit logs...</div>
+                <div className="history-loading-wrap">
+                  <RotateCw size={24} className="spin text-primary" />
+                  <span>Loading evaluation logs...</span>
                 </div>
               ) : historyLogs.length === 0 ? (
-                <div className="history-timeline-empty py-5 text-center text-secondary">
-                  <History size={32} className="mb-2 opacity-50" />
-                  <p>No previous rating adjustments logged yet.</p>
-                  <p className="text-xs">Current baseline rating of {selectedDriver?.currentRating}★ is active.</p>
+                <div className="history-empty-wrap">
+                  <Star size={36} className="text-secondary opacity-30 mb-2" />
+                  <h4>No previous ratings recorded</h4>
+                  <p>This driver has not received any admin rating logs yet.</p>
                 </div>
               ) : (
                 <div className="history-timeline-list">
                   {historyLogs.map(log => (
-                    <div key={log._id} className="timeline-item">
-                      <div className="timeline-dot" />
+                    <div key={log._id} className="history-timeline-item">
+                      <div className="timeline-badge-star">
+                        <Star size={14} className="fill-current text-warning" />
+                      </div>
                       <div className="timeline-content-card">
                         <div className="timeline-header">
                           <div className="timeline-stars">
+                            <span>{log.score.toFixed(1)}★</span>
                             {renderStarRating(log.score)}
-                            <span className="font-bold text-sm ml-1">{log.score.toFixed(1)}★</span>
+                            {log.rideReference && (
+                              <span className="history-ride-badge">
+                                <Car size={11} />
+                                <span>Ride #{log.rideReference}</span>
+                              </span>
+                            )}
                           </div>
                           <span className="timeline-date">
-                            {new Date(log.createdAt).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
+                            {new Date(log.createdAt).toLocaleDateString('en-GB', { 
+                              day: 'numeric', 
+                              month: 'short', 
+                              year: 'numeric', 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
                             })}
                           </span>
                         </div>
-
                         {log.adminRemarks && (
-                          <div className="timeline-remarks mt-2">
-                            "{log.adminRemarks}"
-                          </div>
+                          <p className="timeline-remarks">"{log.adminRemarks}"</p>
                         )}
-
                         {log.performanceTags?.length > 0 && (
-                          <div className="timeline-tags-row mt-2">
+                          <div className="timeline-tags-row">
                             {log.performanceTags.map(tag => (
                               <span key={tag} className="timeline-tag-chip">{tag}</span>
                             ))}
                           </div>
                         )}
-
-                        <div className="timeline-author-meta mt-2 text-xs text-secondary">
-                          Evaluated by: <strong>{log.ratedBy || 'Super Admin'}</strong>
+                        <div className="timeline-footer-audit">
+                          <span>Evaluated by: <strong>{log.ratedBy || 'Super Admin'}</strong></span>
                         </div>
                       </div>
                     </div>
@@ -870,13 +1075,13 @@ const DriverRating = () => {
               )}
             </div>
 
-            <div className="modal-footer">
+            <div className="modal-actions-row">
               <button 
                 type="button" 
-                className="primary-btn" 
+                className="secondary-btn w-100 justify-content-center" 
                 onClick={() => setIsHistoryModalOpen(false)}
               >
-                Close History
+                Close Audit Log
               </button>
             </div>
           </div>

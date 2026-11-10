@@ -32,7 +32,7 @@ export default function AdminRideDispatch() {
     fetchDrivers();
 
     const socket = io(BASE_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       reconnection: true
     });
 

@@ -24,6 +24,18 @@ async function request(endpoint, options = {}) {
     const result = await res.json();
     return result;
   } catch (err) {
+    // Resilient Fallback: If direct port 5000 call fails, attempt Vite dev proxy `/api${endpoint}`
+    if (typeof window !== 'undefined' && (url.startsWith('http://localhost:5000/api') || url.startsWith('http://127.0.0.1:5000/api'))) {
+      try {
+        const fallbackUrl = `/api${endpoint}`;
+        const resFallback = await fetch(fallbackUrl, config);
+        const resultFallback = await resFallback.json();
+        return resultFallback;
+      } catch (fallbackErr) {
+        // Fallback also failed, proceed to error return
+      }
+    }
+
     console.warn(`[API Client] Network request to ${url} failed:`, err.message);
     return {
       success: false,
@@ -191,16 +203,10 @@ export const RideAPI = {
       });
       if (patchRes.ok) {
         const data = await patchRes.json();
-        // Fire-and-forget background ping to mobile app endpoints
-        fetch(`http://192.168.88.59:3000/api/rides/${rideId}/dispatch`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }).catch(() => {});
         return data;
       }
     } catch (e) {
-      console.warn('[Dispatch] Direct backend dispatch failed, attempting fallback:', e.message);
+      console.warn('[Dispatch] Direct backend dispatch warning:', e.message);
     }
 
     // 2. Fallback to POST /api/ride/assign
@@ -257,3 +263,18 @@ export const RideAPI = {
   // GET /api/ride/driver/:driverId - Fetch assigned rides for driver
   getDriverRides: (driverId) => request(`/ride/driver/${driverId}`)
 };
+
+export const RoutePoolingAPI = {
+  // GET /api/routes/batches
+  getBatches: () => request('/routes/batches'),
+
+  // POST /api/routes/batch-dispatch
+  dispatchBatch: (data) => request('/routes/batch-dispatch', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+
+  // GET /api/routes/driver/:driverId
+  getDriverBatches: (driverId) => request(`/routes/driver/${driverId}`)
+};
+

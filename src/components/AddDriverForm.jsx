@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
 import { 
   X, User, CreditCard, Phone, Mail, Lock, FileText, Calendar, 
-  Camera, UploadCloud, ChevronRight, ChevronLeft, CheckCircle, Eye, AlertCircle
+  Camera, UploadCloud, ChevronRight, ChevronLeft, CheckCircle, Eye, EyeOff, AlertCircle
 } from 'lucide-react';
 import './AddDriverForm.css';
 
 const AddDriverForm = ({ onClose, onSuccess }) => {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   
   const [formData, setFormData] = useState({});
   const [images, setImages] = useState({});
 
-  const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+  const handleChange = (e) => {
+    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    if (errorMessage) setErrorMessage('');
+  };
 
   const handleImageUpload = (e, key) => {
     const file = e.target.files[0];
@@ -27,33 +33,64 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setErrorMessage('');
     if (step === 1) {
+      if (formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword) {
+        setErrorMessage('Passwords do not match. Please verify both password fields.');
+        return;
+      }
       setStep(2);
     } else {
       setIsSubmitting(true);
       setTimeout(() => {
         setIsSubmitting(false);
-        onSuccess(formData);
-      }, 1000);
+        onSuccess({ ...formData, images });
+      }, 500);
     }
   };
 
-  const renderInputBox = (icon, label, name, placeholder, type = "text", showEye = false) => (
-    <div className="custom-input-box">
-      <div className="custom-input-icon">{icon}</div>
-      <div className="custom-input-content">
-        <label>{label}</label>
-        <input 
-          type={type} 
-          name={name} 
-          placeholder={placeholder} 
-          required 
-          onChange={handleChange} 
-        />
+  const renderInputBox = (icon, label, name, placeholder, type = "text", showEye = false) => {
+    const isPass = name === 'password';
+    const isConfirmPass = name === 'confirmPassword';
+    let resolvedType = type;
+    if (isPass) resolvedType = showPassword ? 'text' : 'password';
+    if (isConfirmPass) resolvedType = showConfirmPassword ? 'text' : 'password';
+
+    const toggleEye = () => {
+      if (isPass) setShowPassword(prev => !prev);
+      if (isConfirmPass) setShowConfirmPassword(prev => !prev);
+    };
+
+    const isVisible = isPass ? showPassword : showConfirmPassword;
+
+    return (
+      <div className="custom-input-box">
+        <div className="custom-input-icon">{icon}</div>
+        <div className="custom-input-content">
+          <label>{label}</label>
+          <input 
+            type={resolvedType} 
+            name={name} 
+            placeholder={placeholder} 
+            required 
+            value={formData[name] || ''}
+            onChange={handleChange} 
+          />
+        </div>
+        {showEye && (
+          <button 
+            type="button" 
+            className="input-eye-toggle-btn" 
+            onClick={toggleEye} 
+            tabIndex="-1"
+            title={isVisible ? "Hide password" : "Show password"}
+          >
+            {isVisible ? <EyeOff size={18} className="custom-input-eye" /> : <Eye size={18} className="custom-input-eye" />}
+          </button>
+        )}
       </div>
-      {showEye && <Eye size={18} className="custom-input-eye" />}
-    </div>
-  );
+    );
+  };
 
   const renderStep1 = () => (
     <div className="form-step fade-in">
@@ -63,10 +100,25 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
       </div>
 
       <div className="avatar-upload-container">
-        <div className="avatar-upload">
-          <User size={32} color="var(--text-secondary)" />
-          <div className="avatar-edit-icon"><Camera size={14} /></div>
-        </div>
+        <label 
+          className={`avatar-upload clickable ${images.profilePhoto ? 'has-image' : ''}`} 
+          title="Click to upload profile photo"
+        >
+          <input 
+            type="file" 
+            className="d-none" 
+            accept="image/*" 
+            onChange={(e) => handleImageUpload(e, 'profilePhoto')} 
+          />
+          {images.profilePhoto ? (
+            <img src={images.profilePhoto} alt="Profile Preview" className="avatar-preview-img" />
+          ) : (
+            <User size={36} color="var(--text-secondary)" />
+          )}
+          <div className="avatar-edit-icon" title="Upload profile photo">
+            <Camera size={14} color="var(--accent-primary)" />
+          </div>
+        </label>
       </div>
 
       <div className="form-grid">
@@ -103,6 +155,13 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
         ))}
       </div>
 
+      {errorMessage && (
+        <div className="form-error-banner mt-3">
+          <AlertCircle size={16} />
+          <span>{errorMessage}</span>
+        </div>
+      )}
+
       <div className="info-box mt-4">
         <AlertCircle size={16} className="flex-shrink-0" />
         <span>Ensure all photos are clear and taken in good lighting for faster verification.</span>
@@ -119,7 +178,13 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
       <div className="form-grid">
         <div className="form-group mb-3">
           <label>VEHICLE MAKE</label>
-          <select name="make" required onChange={handleChange} className="form-input rounded-select">
+          <select 
+            name="make" 
+            required 
+            value={formData.make || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select"
+          >
             <option value="">Select make...</option>
             <option value="Toyota">Toyota</option>
             <option value="Honda">Honda</option>
@@ -129,7 +194,13 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
 
         <div className="form-group mb-3">
           <label>VEHICLE MODEL</label>
-          <select name="model" required onChange={handleChange} className="form-input rounded-select">
+          <select 
+            name="model" 
+            required 
+            value={formData.model || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select"
+          >
             <option value="">Select model...</option>
             <option value="Corolla">Corolla</option>
             <option value="Civic">Civic</option>
@@ -139,7 +210,13 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
 
         <div className="form-group mb-3">
           <label>VARIANT</label>
-          <select name="variant" required onChange={handleChange} className="form-input rounded-select">
+          <select 
+            name="variant" 
+            required 
+            value={formData.variant || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select"
+          >
             <option value="">Select variant...</option>
             <option value="GLI">GLI</option>
             <option value="XLI">XLI</option>
@@ -149,17 +226,39 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
 
         <div className="form-group mb-3">
           <label>SEATING CAPACITY</label>
-          <input type="number" name="capacity" placeholder="e.g. 5" required onChange={handleChange} className="form-input rounded-select" />
+          <input 
+            type="number" 
+            name="capacity" 
+            placeholder="e.g. 5" 
+            required 
+            value={formData.capacity || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select" 
+          />
         </div>
 
         <div className="form-group mb-3">
           <label>REGISTRATION / NUMBER PLATE</label>
-          <input type="text" name="plate" placeholder="E.G. ISB-1234" required onChange={handleChange} className="form-input rounded-select" />
+          <input 
+            type="text" 
+            name="plate" 
+            placeholder="E.G. ISB-1234" 
+            required 
+            value={formData.plate || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select" 
+          />
         </div>
 
         <div className="form-group mb-4">
           <label>VEHICLE COLOR</label>
-          <select name="color" required onChange={handleChange} className="form-input rounded-select">
+          <select 
+            name="color" 
+            required 
+            value={formData.color || ''} 
+            onChange={handleChange} 
+            className="form-input rounded-select"
+          >
             <option value="">Select color...</option>
             <option value="White">White</option>
             <option value="Black">Black</option>
@@ -201,8 +300,20 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
         </label>
       </div>
 
-      <div className="d-flex gap-2">
-        <button type="submit" className="btn-primary w-100 justify-content-center" disabled={isSubmitting}>
+      <div className="d-flex gap-2 mt-4">
+        <button 
+          type="button" 
+          className="btn-secondary w-50 justify-content-center" 
+          onClick={() => setStep(1)}
+          disabled={isSubmitting}
+        >
+          <ChevronLeft size={18} /> Back to Personal Info
+        </button>
+        <button 
+          type="submit" 
+          className="btn-primary w-50 justify-content-center" 
+          disabled={isSubmitting}
+        >
           {isSubmitting ? 'Saving...' : 'SAVE & CONTINUE'}
         </button>
       </div>
@@ -213,7 +324,20 @@ const AddDriverForm = ({ onClose, onSuccess }) => {
     <div className="add-driver-overlay fade-in">
       <div className="add-driver-modal">
         <div className="modal-top">
-          <button className="icon-btn back-arrow-btn" onClick={onClose}><ChevronLeft size={24} /></button>
+          <button 
+            type="button"
+            className="icon-btn back-arrow-btn" 
+            onClick={() => {
+              if (step === 2) {
+                setStep(1);
+              } else {
+                onClose();
+              }
+            }}
+            title={step === 2 ? "Back to Step 1" : "Close"}
+          >
+            <ChevronLeft size={24} />
+          </button>
           <h3>Driver Registration</h3>
           <div style={{ width: 24 }}></div> {/* Spacer for centering */}
         </div>

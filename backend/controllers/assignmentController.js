@@ -36,7 +36,9 @@ export const createAssignment = async (req, res, next) => {
         status: 'ASSIGNED',
         driver: driver._id,
         driverId: driver._id,
+        assignedDriverId: driver._id,
         assignedDriver: assignedDriverName,
+        assignedDriverName: assignedDriverName,
         assignedDriverPhone: assignedPhone,
         assignedDriverCode: assignedDriverCode,
         assignedDriverDetails: {
@@ -73,12 +75,58 @@ export const createAssignment = async (req, res, next) => {
       const newAssignment = await AssignmentDB.create({
         requestId: ride._id,
         driverId: driver._id,
+        driverCode: assignedDriverCode,
         status: 'ASSIGNED',
         remarks: remarks || `Dispatched to ${assignedDriverName}`
       });
 
       // Update Driver Availability
       await DriverDB.update(drvFilter, { availability: 'On Trip' });
+
+      // Save notification in drivernotifications collection
+      try {
+        const db = mongoose.connection?.db;
+        if (db) {
+          await db.collection('drivernotifications').insertOne({
+            notificationId: `${ride.requestId || ride.rideId || targetRideId}_ASSIGNED_${Date.now()}`,
+            driverId: String(driver._id),
+            driverName: assignedDriverName,
+            driverReferenceId: assignedDriverCode || '',
+            rideId: ride.requestId || ride.rideId || targetRideId,
+            customerName: ride.passengerName || ride.clientName || 'Customer',
+            customerPhone: ride.passengerPhone || ride.clientPhone || '',
+            customerCount: 0,
+            routeId: '',
+            routeName: '',
+            timeRange: '',
+            pickup: typeof ride.pickupLocation === 'object' ? (ride.pickupLocation?.address || 'Pickup') : (ride.pickupLocation || 'Pickup'),
+            destination: typeof ride.dropoffLocation === 'object' ? (ride.dropoffLocation?.address || 'Drop-off') : (ride.dropoffLocation || 'Drop-off'),
+            fareFormatted: updateData.fareFormatted || ride.fareFormatted || 'Rs. 9,500',
+            status: 'ASSIGNED',
+            title: '🚗 New Ride Assigned!',
+            subtitle: `Customer ${ride.passengerName || 'Customer'} (${ride.requestId || targetRideId}) has been assigned to you. Tap to view ride details.`,
+            type: 'NEW_ASSIGNMENT',
+            isRead: false,
+            isDismissed: false,
+            payload: {
+              id: ride.requestId || ride.rideId || targetRideId,
+              rideId: ride.requestId || ride.rideId || targetRideId,
+              requestId: ride.requestId || ride.rideId || targetRideId,
+              mongoId: String(ride._id),
+              passengerName: ride.passengerName,
+              customerName: ride.passengerName,
+              passengerPhone: ride.passengerPhone,
+              pickupLocation: ride.pickupLocation,
+              dropoffLocation: ride.dropoffLocation,
+              fare: updateData.fare || ride.fare,
+              fareFormatted: updateData.fareFormatted || ride.fareFormatted,
+              status: 'ASSIGNED'
+            },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+      } catch (e) {}
 
       // Socket.IO notification ONLY to that specific driver's app & admin room
       const io = req.app.get('io');
@@ -284,7 +332,7 @@ export const getDriverAssignedRides = async (req, res, next) => {
       let extraRides = [];
       const client = mongoose.connection?.client;
       if (client && driverObj) {
-        const extraCollections = ['schedulerides', 'traveltourismrequests', 'driverhirerequests'];
+        const extraCollections = ['riderequests', 'rides', 'schedulerides', 'traveltourismrequests', 'driverhirerequests'];
         const drvIdStr = String(driverObj._id);
         const drvCodeStr = driverObj.driverId || driverObj.driverReferenceId;
         const drvNameStr = driverObj.Name || driverObj.name;
@@ -322,9 +370,9 @@ export const getDriverAssignedRides = async (req, res, next) => {
     if (targetDriverId) {
       const tid = String(targetDriverId).toLowerCase().trim();
       finalRides = formattedRides.filter(r => {
-        const dId = String(r.driverId || r.driver || '').toLowerCase();
-        const dCode = String(r.assignedDriverDetails?.driverCode || '').toLowerCase();
-        const dName = String(r.assignedDriverDetails?.name || '').toLowerCase();
+        const dId = String(r.assignedDriverId || r.driverId || r.driver || '').toLowerCase();
+        const dCode = String(r.assignedDriverDetails?.driverCode || r.assignedDriverCode || '').toLowerCase();
+        const dName = String(r.assignedDriverDetails?.name || r.assignedDriverName || r.assignedDriver || '').toLowerCase();
         return dId === tid || dCode === tid || (driverObj && (
           dId === String(driverObj._id).toLowerCase() || 
           dCode === String(driverObj.driverId || driverObj.driverReferenceId || '').toLowerCase() || 
@@ -437,18 +485,25 @@ export const dispatchDriverToRide = async (req, res, next) => {
     // Check RideDB first (Customer app rides in ride_and_serve.riderequests)
     let ride = await RideDB.findOne(rideFilter);
     if (ride) {
-      await AssignmentDB.create({
-        requestId: ride._id,
-        driverId: driver?._id || driverId || null,
-        status: 'ASSIGNED',
-        remarks: remarks || `Dispatched to ${assignedDriverName}`
-      });
+      try {
+        await AssignmentDB.create({
+          requestId: ride._id,
+          driverId: driver?._id || driverId || null,
+          driverCode: assignedDriverCode,
+          status: 'ASSIGNED',
+          remarks: remarks || `Dispatched to ${assignedDriverName}`
+        });
+      } catch (asgErr) {
+        console.warn('[Dispatch] Assignment creation note (non-fatal):', asgErr.message);
+      }
 
       const updateData = {
         status: 'ASSIGNED',
         driver: driver?._id || driverId || null,
         driverId: driver?._id || driverId || null,
+        assignedDriverId: driver?._id || driverId || null,
         assignedDriver: assignedDriverName,
+        assignedDriverName: assignedDriverName,
         assignedDriverPhone: assignedPhone,
         assignedDriverCode: assignedDriverCode,
         assignedDriverDetails: {
@@ -477,6 +532,51 @@ export const dispatchDriverToRide = async (req, res, next) => {
       if (driver) {
         await DriverDB.update({ _id: driver._id }, { availability: 'On Trip' });
       }
+
+      // Save notification in drivernotifications collection
+      try {
+        const db = mongoose.connection?.db;
+        if (db) {
+          await db.collection('drivernotifications').insertOne({
+            notificationId: `${ride.requestId || ride.rideId || id}_ASSIGNED_${Date.now()}`,
+            driverId: String(driver?._id || driverId),
+            driverName: assignedDriverName,
+            driverReferenceId: assignedDriverCode || '',
+            rideId: ride.requestId || ride.rideId || id,
+            customerName: ride.passengerName || ride.clientName || 'Customer',
+            customerPhone: ride.passengerPhone || ride.clientPhone || '',
+            customerCount: 0,
+            routeId: '',
+            routeName: '',
+            timeRange: '',
+            pickup: typeof ride.pickupLocation === 'object' ? (ride.pickupLocation?.address || 'Pickup') : (ride.pickupLocation || 'Pickup'),
+            destination: typeof ride.dropoffLocation === 'object' ? (ride.dropoffLocation?.address || 'Drop-off') : (ride.dropoffLocation || 'Drop-off'),
+            fareFormatted: updateData.fareFormatted || ride.fareFormatted || 'Rs. 9,500',
+            status: 'ASSIGNED',
+            title: '🚗 New Ride Assigned!',
+            subtitle: `Customer ${ride.passengerName || 'Customer'} (${ride.requestId || id}) has been assigned to you. Tap to view ride details.`,
+            type: 'NEW_ASSIGNMENT',
+            isRead: false,
+            isDismissed: false,
+            payload: {
+              id: ride.requestId || ride.rideId || id,
+              rideId: ride.requestId || ride.rideId || id,
+              requestId: ride.requestId || ride.rideId || id,
+              mongoId: String(ride._id),
+              passengerName: ride.passengerName,
+              customerName: ride.passengerName,
+              passengerPhone: ride.passengerPhone,
+              pickupLocation: ride.pickupLocation,
+              dropoffLocation: ride.dropoffLocation,
+              fare: updateData.fare || ride.fare,
+              fareFormatted: updateData.fareFormatted || ride.fareFormatted,
+              status: 'ASSIGNED'
+            },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+      } catch (e) {}
 
       const formatted = formatRideRecord(updatedRide || ride);
       const io = req.app.get('io');
@@ -518,16 +618,22 @@ export const dispatchDriverToRide = async (req, res, next) => {
           io.to(`driver-${driver._id}`).emit('new-assignment', payload);
           io.to(`driver-${driver._id}`).emit('ride-assigned', payload);
           io.to(`driver-${driver._id}`).emit('ride-dispatched', payload);
+          io.to(`driver-${driver._id}`).emit('new-notification', payload);
+          io.to(`driver-${driver._id}`).emit('driver-notification', payload);
         }
         if (driverId && (!driver?._id || String(driverId) !== String(driver._id))) {
           io.to(`driver-${driverId}`).emit('new-assignment', payload);
           io.to(`driver-${driverId}`).emit('ride-assigned', payload);
           io.to(`driver-${driverId}`).emit('ride-dispatched', payload);
+          io.to(`driver-${driverId}`).emit('new-notification', payload);
+          io.to(`driver-${driverId}`).emit('driver-notification', payload);
         }
         if (assignedDriverCode) {
           io.to(`driver-${assignedDriverCode}`).emit('new-assignment', payload);
           io.to(`driver-${assignedDriverCode}`).emit('ride-assigned', payload);
           io.to(`driver-${assignedDriverCode}`).emit('ride-dispatched', payload);
+          io.to(`driver-${assignedDriverCode}`).emit('new-notification', payload);
+          io.to(`driver-${assignedDriverCode}`).emit('driver-notification', payload);
         }
 
         // GLOBAL EMITS to ensure Driver App receives the request regardless of rooms
@@ -535,6 +641,8 @@ export const dispatchDriverToRide = async (req, res, next) => {
         io.emit('new-assignment', payload);
         io.emit('ride-assigned', payload);
         io.emit('ride-dispatched', payload);
+        io.emit('new-notification', payload);
+        io.emit('driver-notification', payload);
 
         // Notify Admin Portal dashboard
         io.to('admin-room').emit('ride-dispatched', payload);
@@ -563,12 +671,16 @@ export const dispatchDriverToRide = async (req, res, next) => {
     }
 
     // Create Assignment Record
-    await AssignmentDB.create({
-      requestId: request._id,
-      driverId: driver?._id || driverId || null,
-      status: 'ASSIGNED',
-      remarks: remarks || `Dispatched to ${assignedDriverName}`
-    });
+    try {
+      await AssignmentDB.create({
+        requestId: request._id,
+        driverId: driver?._id || driverId || null,
+        status: 'ASSIGNED',
+        remarks: remarks || `Dispatched to ${assignedDriverName}`
+      });
+    } catch (asgErr) {
+      console.warn('[Dispatch] Fallback assignment creation note (non-fatal):', asgErr.message);
+    }
 
     // Update Request
     const reqUpdateData = {

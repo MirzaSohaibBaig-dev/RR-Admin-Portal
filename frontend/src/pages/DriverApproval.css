@@ -859,5 +859,428 @@
   background: rgba(245, 158, 11, 0.15);
 }
 
+/* ==========================================================================
+   DRIVER APPROVAL — Dark Mode Comprehensive Overrides
+   ========================================================================== */
 
+body.dark-mode .driver-kpi-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
 
+body.dark-mode .driver-kpi-card:hover {
+  border-color: #475569;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+body.dark-mode .driver-kpi-card.active {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+body.dark-mode .kpi-label {
+  color: #94a3b8;
+}
+
+body.dark-mode .kpi-value {
+  color: #f8fafc;
+}
+
+body.dark-mode .bg-warning-light {
+  background: rgba(245, 158, 11, 0.15) !important;
+}
+
+body.dark-mode .bg-success-light {
+  background: rgba(16, 185, 129, 0.15) !important;
+}
+
+body.dark-mode .bg-danger-light {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+body.dark-mode .bg-primary-light {
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+body.dark-mode .text-warning {
+  color: #fbbf24 !important;
+}
+
+body.dark-mode .text-success {
+  color: #34d399 !important;
+}
+
+body.dark-mode .text-danger {
+  color: #f87171 !important;
+}
+
+/* Filters Bar in Dark Mode */
+body.dark-mode .driver-filters-bar {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .driver-search-box input {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .driver-search-box input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+body.dark-mode .filter-item label {
+  color: #94a3b8;
+}
+
+body.dark-mode .filter-item select {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+body.dark-mode .filter-item select:focus {
+  border-color: #6366f1;
+}
+
+body.dark-mode .reset-filters-btn {
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+body.dark-mode .reset-filters-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+/* Table Card & Content in Dark Mode */
+body.dark-mode .table-container-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+body.dark-mode .table-tabs {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .tab-btn {
+  color: #94a3b8;
+}
+
+body.dark-mode .tab-btn:hover {
+  color: #f8fafc;
+}
+
+body.dark-mode .tab-btn.active {
+  color: #818cf8;
+}
+
+body.dark-mode .tab-btn.active::after {
+  background: #818cf8;
+}
+
+body.dark-mode .clean-table thead tr {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .clean-table thead th {
+  color: #94a3b8;
+}
+
+body.dark-mode .clean-table tbody tr {
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .clean-table tbody tr:hover {
+  background: rgba(15, 23, 42, 0.65);
+}
+
+body.dark-mode .clean-table tbody td {
+  color: #f8fafc;
+}
+
+body.dark-mode .driver-name-cell .name {
+  color: #f8fafc;
+}
+
+body.dark-mode .driver-name-cell .subtext {
+  color: #94a3b8;
+}
+
+body.dark-mode .avatar-sm {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+body.dark-mode .avatar-sm.avatar-has-img {
+  border-color: #334155;
+}
+
+body.dark-mode .action-btn {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+}
+
+body.dark-mode .action-btn:hover {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+/* Details Card in Dark Mode */
+body.dark-mode .details-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+body.dark-mode .details-header {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .driver-profile-main h2 {
+  color: #f8fafc;
+}
+
+body.dark-mode .driver-profile-main p {
+  color: #94a3b8;
+}
+
+body.dark-mode .back-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+body.dark-mode .back-btn:hover {
+  background: #334155;
+  color: #f8fafc;
+  border-color: #475569;
+}
+
+body.dark-mode .edit-driver-btn {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: #6366f1;
+  color: #a5b4fc;
+}
+
+body.dark-mode .edit-driver-btn:hover {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+body.dark-mode .avatar-lg {
+  border-color: #334155;
+}
+
+body.dark-mode .driver-stats-row {
+  border-bottom-color: #334155;
+}
+
+body.dark-mode .driver-stat-item {
+  border-right-color: #334155;
+}
+
+body.dark-mode .stat-label {
+  color: #94a3b8;
+}
+
+body.dark-mode .details-section {
+  border-right-color: #334155;
+}
+
+body.dark-mode .details-section h3 {
+  color: #94a3b8;
+  border-bottom-color: rgba(99, 102, 241, 0.3);
+}
+
+body.dark-mode .info-item .label {
+  color: #94a3b8;
+}
+
+body.dark-mode .info-item .value {
+  color: #f8fafc;
+}
+
+body.dark-mode .preview-mini-btn {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+body.dark-mode .preview-mini-btn:hover {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+body.dark-mode .docs-full-section {
+  border-top-color: #334155 !important;
+}
+
+body.dark-mode .doc-category-block {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+body.dark-mode .doc-category-title {
+  color: #f8fafc;
+}
+
+body.dark-mode .driver-doc-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+body.dark-mode .driver-doc-card.clickable:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+body.dark-mode .doc-img-placeholder {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+body.dark-mode .doc-card-label {
+  color: #f8fafc;
+}
+
+body.dark-mode .doc-status-tag.uploaded {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+body.dark-mode .doc-status-tag.missing {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+body.dark-mode .details-actions {
+  background: #0f172a;
+  border-top-color: #334155;
+}
+
+body.dark-mode .reject-btn {
+  color: #f87171;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+body.dark-mode .reject-btn:hover {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+body.dark-mode .incomplete-docs-banner {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* Status Badges in Dark Mode */
+body.dark-mode .status-badge.pending {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+body.dark-mode .status-badge.approved {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+body.dark-mode .status-badge.rejected {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Button Loading & Disabled States */
+.approve-btn:disabled,
+.reject-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Toast Notification Error Variant */
+.toast-notification.toast-error {
+  border-left-color: #ef4444;
+}
+
+.toast-notification.toast-error svg {
+  color: #ef4444;
+}
+
+/* ============================================
+   TABLE LOADING SPINNER & ENHANCED EMPTY STATE
+   ============================================ */
+.table-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  gap: 1rem;
+  color: var(--text-secondary);
+}
+
+.table-loading-state p {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+.loading-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin-approval 0.8s linear infinite;
+}
+
+@keyframes spin-approval {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.table-content .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4.5rem 2rem;
+  text-align: center;
+}
+
+.table-content .empty-state .empty-state-icon {
+  color: var(--text-muted, #94a3b8);
+  margin-bottom: 1rem;
+  opacity: 0.6;
+}
+
+.table-content .empty-state h4 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.table-content .empty-state p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  max-width: 420px;
+  margin: 0 auto;
+}

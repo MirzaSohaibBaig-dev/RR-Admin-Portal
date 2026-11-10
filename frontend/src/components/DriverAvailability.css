@@ -1,19 +1,31 @@
 /* ===================================================
-   Driver Availability Component Styles (Mobile Spec Aligned)
+   Driver Availability Component Styles (Light & Dark Theme Aligned)
    =================================================== */
 
 .availability-card-wrap {
-  background: var(--bg-primary, #ffffff);
+  background: var(--bg-secondary, #ffffff);
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 12px;
   padding: 1.25rem 1.4rem;
   margin-top: 1.5rem;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+body.dark-mode .availability-card-wrap {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .empty-availability-state {
   background: #f8fafc;
-  border-style: dashed;
+  border: 1.5px dashed #cbd5e1;
+}
+
+body.dark-mode .empty-availability-state {
+  background: rgba(15, 23, 42, 0.65);
+  border-color: #334155;
 }
 
 .availability-card-header {
@@ -27,6 +39,10 @@
   gap: 0.5rem;
 }
 
+body.dark-mode .availability-card-header {
+  border-bottom-color: #334155;
+}
+
 .header-title-flex {
   display: flex;
   align-items: center;
@@ -38,6 +54,10 @@
   font-weight: 700;
   color: var(--text-primary, #0f172a);
   margin: 0;
+}
+
+body.dark-mode .availability-main-title {
+  color: #f8fafc;
 }
 
 .schedule-type-badge {
@@ -56,10 +76,22 @@
   border: 1px solid #bfdbfe;
 }
 
+body.dark-mode .badge-same-day {
+  background: rgba(37, 99, 235, 0.15);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
 .badge-diff-day {
   background: #fdf2f8;
   color: #be185d;
   border: 1px solid #fbcfe8;
+}
+
+body.dark-mode .badge-diff-day {
+  background: rgba(219, 39, 119, 0.15);
+  color: #f472b6;
+  border-color: rgba(219, 39, 119, 0.35);
 }
 
 .not-configured-tag {
@@ -67,8 +99,15 @@
   color: #64748b;
   font-size: 0.72rem;
   font-weight: 700;
-  padding: 0.2rem 0.6rem;
+  padding: 0.25rem 0.65rem;
   border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+body.dark-mode .not-configured-tag {
+  background: #334155;
+  color: #94a3b8;
+  border-color: #475569;
 }
 
 .no-availability-text {
@@ -78,6 +117,10 @@
   line-height: 1.5;
 }
 
+body.dark-mode .no-availability-text {
+  color: #94a3b8;
+}
+
 /* Active Days Section */
 .availability-days-section {
   background: #f8fafc;
@@ -85,6 +128,11 @@
   border-radius: 10px;
   padding: 0.9rem 1rem;
   margin-bottom: 1.25rem;
+}
+
+body.dark-mode .availability-days-section {
+  background: rgba(15, 23, 42, 0.5);
+  border-color: #334155;
 }
 
 .days-section-header {
@@ -104,10 +152,18 @@
   text-transform: uppercase;
 }
 
+body.dark-mode .section-mini-label {
+  color: #94a3b8;
+}
+
 .days-status-hint {
   font-size: 0.72rem;
   color: #64748b;
   font-weight: 500;
+}
+
+body.dark-mode .days-status-hint {
+  color: #64748b;
 }
 
 .days-circles-row {
@@ -140,10 +196,22 @@
   box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
 }
 
+body.dark-mode .day-circle-active {
+  background: #3b82f6;
+  border-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}
+
 .day-circle-inactive {
   background: #ffffff;
   color: #94a3b8;
   border: 1.5px solid #cbd5e1;
+}
+
+body.dark-mode .day-circle-inactive {
+  background: #1e293b;
+  color: #64748b;
+  border: 1.5px solid #334155;
 }
 
 .active-dot {
@@ -175,10 +243,20 @@
   border-radius: 12px;
 }
 
+body.dark-mode .slots-count-pill {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .slots-subtext {
   font-size: 0.78rem;
   color: #64748b;
   margin: 0 0 0.85rem 0;
+}
+
+body.dark-mode .slots-subtext {
+  color: #94a3b8;
 }
 
 .slots-grid-list {
@@ -198,9 +276,19 @@
   gap: 0.5rem;
 }
 
+body.dark-mode .time-slot-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
 .time-slot-card:hover {
   border-color: #cbd5e1;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
+}
+
+body.dark-mode .time-slot-card:hover {
+  border-color: #475569;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
 .slot-card-top-row {
@@ -213,6 +301,11 @@
 .flexible-slot-card {
   border: 1.5px dashed #60a5fa;
   background: #f0f7ff;
+}
+
+body.dark-mode .flexible-slot-card {
+  border: 1.5px dashed #3b82f6;
+  background: rgba(30, 58, 138, 0.2);
 }
 
 .inactive-slot-card {
@@ -240,9 +333,19 @@
   color: #2563eb;
 }
 
+body.dark-mode .icon-standard {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
 .icon-flex {
   background: #dbeafe;
   color: #0284c7;
+}
+
+body.dark-mode .icon-flex {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
 }
 
 .slot-meta-text {
@@ -256,10 +359,18 @@
   color: var(--text-primary, #0f172a);
 }
 
+body.dark-mode .slot-time-string {
+  color: #f8fafc;
+}
+
 .slot-index-label {
   font-size: 0.72rem;
   color: var(--text-secondary, #64748b);
   font-weight: 500;
+}
+
+body.dark-mode .slot-index-label {
+  color: #94a3b8;
 }
 
 .slot-badges-right {
@@ -284,16 +395,34 @@
   border: 1px solid #bae6fd;
 }
 
+body.dark-mode .badge-flexible {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border-color: rgba(14, 165, 233, 0.3);
+}
+
 .badge-active {
   background: #dcfce7;
   color: #15803d;
   border: 1px solid #bbf7d0;
 }
 
+body.dark-mode .badge-active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
 .badge-inactive {
   background: #fee2e2;
   color: #b91c1c;
   border: 1px solid #fecaca;
+}
+
+body.dark-mode .badge-inactive {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .flex-auto-info-note {
@@ -306,6 +435,11 @@
   padding: 0.35rem 0.6rem;
   border-radius: 6px;
   margin-top: 0.25rem;
+}
+
+body.dark-mode .flex-auto-info-note {
+  background: rgba(2, 132, 199, 0.15);
+  color: #38bdf8;
 }
 
 .flex-info-icon {

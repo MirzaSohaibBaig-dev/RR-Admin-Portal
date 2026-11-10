@@ -1,5 +1,5 @@
 import Driver from '../models/Driver.js';
-import { DriverDB } from '../models/dbAdapter.js';
+import { DriverDB, AdminStatsDB } from '../models/dbAdapter.js';
 import { sendSuccess, sendError } from '../middleware/responseHandler.js';
 
 // Helper to attach vehicle data to drivers
@@ -93,10 +93,20 @@ export const updateVerificationStatus = async (req, res) => {
       return sendError(res, 'Driver not found', 404);
     }
 
+    const isApproved = verificationStatus === 'Verified';
+    const isRejected = verificationStatus === 'Rejected';
+
     const updatedDriver = await DriverDB.update({ _id: id }, { 
       verificationStatus,
-      status: verificationStatus === 'Verified' ? 'APPROVED' : (verificationStatus === 'Rejected' ? 'REJECTED' : 'PENDING')
+      status: isApproved ? 'APPROVED' : (isRejected ? 'REJECTED' : 'PENDING'),
+      availability: isApproved ? 'Available' : (isRejected ? 'Offline' : (driver.availability || 'Available'))
     });
+
+    try {
+      await AdminStatsDB.syncStats();
+    } catch (e) {
+      console.error('Failed to sync admin stats:', e.message);
+    }
     
     sendSuccess(res, { driver: updatedDriver }, `Driver status updated to ${verificationStatus} successfully`);
   } catch (error) {
@@ -148,11 +158,26 @@ export const updateDriverProfile = async (req, res) => {
     }
     if (preferredRoutes) driverUpdate.preferredRoutes = Array.isArray(preferredRoutes) ? preferredRoutes : [preferredRoutes];
     if (verificationStatus) {
+      const isApproved = verificationStatus === 'Verified';
+      const isRejected = verificationStatus === 'Rejected';
       driverUpdate.verificationStatus = verificationStatus;
-      driverUpdate.status = verificationStatus === 'Verified' ? 'APPROVED' : (verificationStatus === 'Rejected' ? 'REJECTED' : 'PENDING');
+      driverUpdate.status = isApproved ? 'APPROVED' : (isRejected ? 'REJECTED' : 'PENDING');
+      if (isApproved) {
+        driverUpdate.availability = 'Available';
+      } else if (isRejected) {
+        driverUpdate.availability = 'Offline';
+      }
     }
 
     const updatedDriver = await DriverDB.update({ _id: id }, driverUpdate);
+
+    if (verificationStatus) {
+      try {
+        await AdminStatsDB.syncStats();
+      } catch (e) {
+        console.error('Failed to sync admin stats:', e.message);
+      }
+    }
 
     // Also update or create associated Vehicle
     const vInfo = vehicleInfo || vehicleData;

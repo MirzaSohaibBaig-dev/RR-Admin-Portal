@@ -14,6 +14,14 @@ const driverRatingLogSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  rideId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  rideReference: {
+    type: String,
+    default: ''
+  },
   score: {
     type: Number,
     required: true,

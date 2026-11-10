@@ -47,7 +47,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<AdminLayout user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} />}>
-          <Route index element={<Navigate to="/terms-conditions" replace />} />
+          <Route index element={<Navigate to="/pending-rides" replace />} />
           <Route path="driver-approval" element={<DriverApproval />} />
           <Route path="password-resets" element={<PasswordResetRequests />} />
           <Route path="driver-selection" element={<RideDispatch />} />
@@ -57,7 +57,7 @@ function App() {
           <Route path="ride-pool" element={<RidePool />} />
           <Route path="pending-rides" element={<PendingRides />} />
           <Route path="payment-tracking" element={<PaymentTracking />} />
-          <Route path="/terms-conditions" element={<TermsConditions />} />
+          <Route path="terms-conditions" element={<TermsConditions />} />
           <Route path="*" element={<Navigate to="/pending-rides" replace />} />
         </Route>
       </Routes>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Save, User, Car, MapPin, Shield, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import LocationAutocomplete from './LocationAutocomplete';
 import { BACKEND_URL } from '../utils/api';
@@ -20,6 +20,14 @@ const formatRouteString = (rt) => {
 };
 
 const EditDriverModal = ({ driver, onClose, onSuccess }) => {
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
   const [formData, setFormData] = useState({
     name: driver.personalInfo?.name || '',
     phone: driver.personalInfo?.phone || '',

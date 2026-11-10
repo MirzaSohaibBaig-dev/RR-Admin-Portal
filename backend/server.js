@@ -152,16 +152,23 @@ import adminPasswordResetRoutes from './routes/adminPasswordResetRoutes.js';
 import adminDriverRatingRoutes from './routes/adminDriverRatingRoutes.js';
 import issueRoutes from './routes/issueRoutes.js';
 import termsRoutes from './routes/termsRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import routePoolingRoutes from './routes/routePoolingRoutes.js';
 
 // Admin Panel Verification API Routes
 app.use('/admin/auth', adminAuthRoutes);
 app.use('/admin/driver', adminDriverRoutes);
+app.use('/admin/drivers', adminDriverRoutes);
 app.use('/admin/vehicle', adminVehicleRoutes);
 app.use('/admin/password-resets', adminPasswordResetRoutes);
 app.use('/admin/ratings', adminDriverRatingRoutes);
 app.use('/admin/issues', issueRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/terms', termsRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/payment', paymentRoutes);
+app.use('/api/routes', routePoolingRoutes);
+app.use('/api/route-pooling', routePoolingRoutes);
 
 // Error Handling Middlewares
 app.use(notFoundHandler);
@@ -232,6 +239,7 @@ const startServer = async () => {
       }, 1000);
 
       // Background Real-Time Watcher for Incoming Driver Reported Issues
+      const { isValidIssueReport } = await import('./controllers/issueController.js');
       const knownIssueIds = new Set();
       let isIssueWatcherInitialized = false;
 
@@ -241,8 +249,9 @@ const startServer = async () => {
           const client = mongoose.connection?.client;
           if (client && mongoose.connection.readyState === 1) {
             const issuesTest = await client.db('test').collection('issuereports').find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => []);
+            const issuesRasReports = await client.db('ride_and_serve').collection('issuereports').find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => []);
             const issuesRas = await client.db('ride_and_serve').collection('driverissues').find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => []);
-            const latestIssues = [...(issuesTest || []), ...(issuesRas || [])];
+            const latestIssues = [...(issuesTest || []), ...(issuesRasReports || []), ...(issuesRas || [])];
 
             if (latestIssues && latestIssues.length > 0) {
               if (!isIssueWatcherInitialized) {
@@ -253,7 +262,14 @@ const startServer = async () => {
                   const idStr = String(iss._id);
                   if (!knownIssueIds.has(idStr)) {
                     knownIssueIds.add(idStr);
-                    console.log(`[Realtime Watcher] 🔔 New Driver Issue Detected: ${iss.reason || 'Road Issue'} from ${iss.driverName || 'Driver'}`);
+
+                    // Skip invalid / ghost dummy reports (e.g. canBePicked: true batch duplicates)
+                    if (typeof isValidIssueReport === 'function' && !isValidIssueReport(iss)) {
+                      console.log(`[Realtime Watcher] ⏩ Skipping ghost/duplicate issue report: ${idStr}`);
+                      continue;
+                    }
+
+                    console.log(`[Realtime Watcher] 🔔 New Valid Driver Issue Detected: ${iss.reason || 'Road Issue'} from ${iss.driverName || 'Driver'} for customer: ${iss.customerName || 'N/A'}`);
                     
                     const normalizedIssue = {
                       _id: iss._id,
@@ -264,8 +280,12 @@ const startServer = async () => {
                       driverPhone: iss.driverPhone || '',
                       vehicle: iss.vehicle || 'Sedan Executive',
                       reason: iss.reason || 'Road Issue',
-                      description: iss.details || iss.description || '',
-                      details: iss.details || iss.description || '',
+                      description: iss.details || iss.description || iss.message || '',
+                      details: iss.details || iss.description || iss.message || '',
+                      rideId: iss.rideId || iss.requestId || '',
+                      requestId: iss.requestId || iss.rideId || '',
+                      customerName: iss.customerName || iss.passengerName || '',
+                      customerPhone: iss.customerPhone || iss.passengerPhone || '',
                       location: iss.location || (iss.fromTime && iss.toTime ? `${iss.fromTime} - ${iss.toTime}` : 'Current Location'),
                       fromTime: iss.fromTime || '',
                       toTime: iss.toTime || '',

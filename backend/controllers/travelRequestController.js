@@ -1,4 +1,4 @@
-﻿import mongoose from "mongoose";
+import mongoose from "mongoose";
 import TravelRequest from "../models/TravelRequest.js";
 import { sendSuccess, sendError } from "../middleware/responseHandler.js";
 
@@ -196,6 +196,9 @@ export const updateTravelRequest = async (req, res, next) => {
     const io = req.app.get("io");
     if (io) {
       io.emit("travel-request-updated", { id, ...updateFields, travelRequest: formatted });
+      if (updateFields.fare !== undefined) {
+        io.emit("fare_updated", { rideId: id, newFare: updateFields.fare, newFareFormatted: updateFields.fareFormatted, rideType: "Travel & Tourism" });
+      }
       io.to("admin-room").emit("travel-request-updated", { id, ...updateFields, travelRequest: formatted });
     }
 
@@ -204,3 +207,4 @@ export const updateTravelRequest = async (req, res, next) => {
     next(err);
   }
 };
+
