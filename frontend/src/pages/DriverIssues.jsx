@@ -225,20 +225,22 @@ const DriverIssues = () => {
           if (!newIssue || !isValidFrontendIssue(newIssue)) return;
 
           setIssues((prevIssues) => {
-            const exists = prevIssues.some(i => 
-              (i.issueId && newIssue.issueId && i.issueId === newIssue.issueId) || 
-              (i._id && newIssue._id && i._id === newIssue._id) ||
-              (i.mongoId && newIssue.mongoId && i.mongoId === newIssue.mongoId)
-            );
+            // Always stringify IDs for reliable comparison (prevents ObjectId vs string mismatch)
+            const newMongoId = String(newIssue.mongoId || newIssue._id || '');
+            const newIssueId = String(newIssue.issueId || '');
+            const exists = prevIssues.some(i => {
+              const iMongoId = String(i.mongoId || i._id || '');
+              const iIssueId = String(i.issueId || '');
+              return (newMongoId && iMongoId && newMongoId === iMongoId) ||
+                     (newIssueId && iIssueId && newIssueId === iIssueId);
+            });
             if (exists) return prevIssues;
             return [newIssue, ...prevIssues];
           });
         };
 
-        // Listen for new issue reported by any driver
+        // Listen only for the single canonical event emitted by backend
         socket.on('new_issue_report', handleNewIssue);
-        socket.on('new-issue-report', handleNewIssue);
-        socket.on('driver-issue-created', handleNewIssue);
 
         socket.on('issue_updated', (updated) => {
           if (!updated) return;

@@ -296,9 +296,8 @@ const startServer = async () => {
                       createdAt: iss.createdAt || new Date()
                     };
 
+                    // Emit single canonical event to avoid duplicate rendering on admin portal
                     io.emit('new_issue_report', normalizedIssue);
-                    io.emit('new-issue-report', normalizedIssue);
-                    io.emit('driver-issue-created', normalizedIssue);
                     io.to('admin-room').emit('new_issue_report', normalizedIssue);
                   }
                 }
