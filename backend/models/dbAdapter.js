@@ -62,8 +62,11 @@ export const formatRideRecord = (r) => {
     ((Boolean(isPlain.driverId) && String(isPlain.driverId) !== 'null' && String(isPlain.driverId).trim() !== '') && rawStatusUpper !== 'REJECTED')
   );
 
-  const dateStr = isPlain.date || (isPlain.createdAt ? new Date(isPlain.createdAt).toLocaleDateString() : 'Today');
-  const timeStr = isPlain.timeToLeave || (isPlain.createdAt ? new Date(isPlain.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '08:00 AM');
+  const rawSeats = Number(isPlain.passengersCount ?? isPlain.passengerCount ?? isPlain.seatsNeeded ?? isPlain.seats ?? isPlain.noOfSeats ?? isPlain.customSchedule?.passengersCount ?? 1) || 1;
+  const genderPref = isPlain.genderPreference || isPlain.customSchedule?.genderPreference || (String(isPlain.gender || isPlain.passenger?.gender || '').toLowerCase().includes('female') ? 'Female Only' : (String(isPlain.gender || isPlain.passenger?.gender || '').toLowerCase().includes('both') ? 'Both' : 'Male Only'));
+
+  const dateStr = isPlain.startingFrom || isPlain.customSchedule?.startDate || isPlain.date || (isPlain.createdAt ? new Date(isPlain.createdAt).toLocaleDateString() : 'Today');
+  const timeStr = isPlain.timeToLeave || isPlain.customSchedule?.toTime || (isPlain.createdAt ? new Date(isPlain.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '08:00 AM');
 
   return {
     ...isPlain,
@@ -81,7 +84,7 @@ export const formatRideRecord = (r) => {
       name: custName,
       phone: custPhone,
       email: custEmail,
-      gender: cust.gender || isPlain.gender || 'Male'
+      gender: cust.gender || isPlain.gender || (genderPref === 'Female Only' ? 'Female' : 'Male')
     },
 
     pickupLocation: pickup,
@@ -91,13 +94,13 @@ export const formatRideRecord = (r) => {
       summary: `${pickup} ➔ ${drop}`,
       pickupLocation: pickup,
       dropLocation: drop,
-      passengers: `${isPlain.passengersCount ?? isPlain.passengerCount ?? isPlain.seatsNeeded ?? 1} Passenger(s)`
+      passengers: `${rawSeats} Passenger(s)`
     },
     date: dateStr,
-    timeToLeave: isPlain.customSchedule?.toTime || isPlain.timeToLeave || timeStr,
-    timeToReach: isPlain.customSchedule?.fromTime || isPlain.timeToReach || '08:30 AM',
-    scheduleTime: isPlain.scheduleTime || isPlain.customSchedule?.fromTime || isPlain.timeToReach || '08:30 AM',
-    startingFrom: isPlain.customSchedule?.startDate || isPlain.startingFrom || dateStr,
+    timeToLeave: isPlain.timeToLeave || isPlain.customSchedule?.toTime || timeStr,
+    timeToReach: isPlain.timeToReach || isPlain.customSchedule?.fromTime || isPlain.scheduleTime || '08:30 AM',
+    scheduleTime: isPlain.scheduleTime || isPlain.timeToReach || isPlain.customSchedule?.fromTime || '08:30 AM',
+    startingFrom: isPlain.startingFrom || isPlain.customSchedule?.startDate || dateStr,
     scheduleType: isPlain.scheduleType || (isPlain.customSchedule ? 'Customize' : 'Mon - Fri'),
     customSchedule: isPlain.customSchedule || null,
     selectedDays: (Array.isArray(isPlain.customSchedule?.selectedDays) && isPlain.customSchedule.selectedDays.length > 0)
@@ -112,8 +115,8 @@ export const formatRideRecord = (r) => {
     fareAmount: rawFareNum,
     price: rawFareNum,
     fareFormatted: fareFormatted,
-    passengersCount: isPlain.passengersCount ?? isPlain.passengerCount ?? isPlain.seatsNeeded ?? isPlain.seats ?? isPlain.noOfSeats ?? isPlain.customSchedule?.passengersCount ?? 1,
-    seatsNeeded: isPlain.passengersCount ?? isPlain.passengerCount ?? isPlain.seatsNeeded ?? isPlain.seats ?? isPlain.noOfSeats ?? isPlain.customSchedule?.passengersCount ?? 1,
+    passengersCount: rawSeats,
+    seatsNeeded: rawSeats,
     rideType: isPlain.rideType || 'Standard',
     vehiclePreference: isPlain.seatingArrangement || isPlain.vehicleType || isPlain.vehiclePreference || isPlain.customSchedule?.vehicleType || 'Sedan Executive',
     vehicleType: isPlain.vehicleType || isPlain.seatingArrangement || isPlain.vehiclePreference || isPlain.customSchedule?.vehicleType || 'Sedan Executive',
@@ -128,7 +131,7 @@ export const formatRideRecord = (r) => {
     })(),
     serviceType: isPlain.vehicleTypeSelection || isPlain.serviceType || isPlain.preferences?.vehicleArrangement || isPlain.customSchedule?.serviceType || 'Combined',
     vehicleTypeSelection: isPlain.vehicleTypeSelection || isPlain.serviceType || isPlain.preferences?.vehicleArrangement || isPlain.customSchedule?.serviceType || 'Combined',
-    genderPreference: isPlain.genderPreference || isPlain.customSchedule?.genderPreference || (String(isPlain.gender || isPlain.passenger?.gender || '').toLowerCase().includes('female') ? 'Female Only' : (String(isPlain.gender || isPlain.passenger?.gender || '').toLowerCase().includes('both') ? 'Both' : 'Male Only')),
+    genderPreference: genderPref,
     acPreference: (isPlain.acPreference === 'Non-AC' || isPlain.acPreference === 'Non AC' || isPlain.acRequired === false) ? 'Non-AC' : 'AC',
     acRequired: isPlain.acRequired !== false && isPlain.acPreference !== 'Non-AC',
     returnPickupLocation: isPlain.customSchedule?.returnPickupLocation || isPlain.returnPickupLocation || isPlain.returnPickup || null,
@@ -203,7 +206,7 @@ function buildRideQuery(filter = {}) {
 }
 
 // ==========================================
-// RIDE ADAPTER (Customer App rides collection)
+// RIDE ADAPTER (Customer App rides collection & monthlypickanddrop)
 // ==========================================
 export const RideDB = {
   async count(query = {}) {
@@ -211,7 +214,10 @@ export const RideDB = {
       try {
         const client = mongoose.connection?.client;
         if (client) {
-          return await client.db('ride_and_serve').collection('riderequests').countDocuments(query);
+          const c0 = await client.db('ride_and_serve').collection('schedulerides').countDocuments(query).catch(() => 0);
+          const c1 = await client.db('ride_and_serve').collection('monthlypickanddrop').countDocuments(query).catch(() => 0);
+          const c2 = await client.db('ride_and_serve').collection('riderequests').countDocuments(query).catch(() => 0);
+          return c0 + c1 + c2;
         }
       } catch (e) {}
       return await RideModel.countDocuments(query);
@@ -228,16 +234,26 @@ export const RideDB = {
           if (query && Object.keys(query).length > 0) {
             mongoFilter = query;
           }
+          // Fetch from schedulerides, monthlypickanddrop, then riderequests
+          const schedReqs = await client.db('ride_and_serve').collection('schedulerides').find(mongoFilter).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+          const monthlyReqs = await client.db('ride_and_serve').collection('monthlypickanddrop').find(mongoFilter).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
           const appReqs1 = await client.db('ride_and_serve').collection('riderequests').find(mongoFilter).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
           const appReqs2 = await client.db('test').collection('riderequests').find(mongoFilter).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+          
           const idSet = new Set();
           const appReqs = [];
-          [...(appReqs1 || []), ...(appReqs2 || [])].forEach(r => {
+          [...(schedReqs || []), ...(monthlyReqs || []), ...(appReqs1 || []), ...(appReqs2 || [])].forEach(r => {
             const key = String(r._id);
             if (!idSet.has(key)) {
               idSet.add(key);
               appReqs.push(r);
             }
+          });
+          // Sort by creation time descending
+          appReqs.sort((a, b) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (a._id ? new mongoose.Types.ObjectId(a._id).getTimestamp().getTime() : 0);
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (b._id ? new mongoose.Types.ObjectId(b._id).getTimestamp().getTime() : 0);
+            return timeB - timeA;
           });
           return appReqs.map(formatRideRecord);
         }
@@ -255,7 +271,13 @@ export const RideDB = {
         const client = mongoose.connection?.client;
         if (client) {
           const query = buildRideQuery(filter);
-          const r = await client.db('ride_and_serve').collection('riderequests').findOne(query);
+          // 1. Check monthlypickanddrop
+          let r = await client.db('ride_and_serve').collection('monthlypickanddrop').findOne(query).catch(() => null);
+          if (r) {
+            return formatRideRecord(r);
+          }
+          // 2. Fallback to riderequests
+          r = await client.db('ride_and_serve').collection('riderequests').findOne(query).catch(() => null);
           if (r) {
             return formatRideRecord(r);
           }
@@ -295,6 +317,14 @@ export const RideDB = {
           if (!updateDoc.$set) updateDoc.$set = {};
           updateDoc.$set.updatedAt = new Date();
 
+          // Try updating in monthlypickanddrop first
+          const resMonthly = await client.db('ride_and_serve').collection('monthlypickanddrop').updateOne(query, updateDoc).catch(() => null);
+          if (resMonthly && resMonthly.matchedCount > 0) {
+            const updated = await client.db('ride_and_serve').collection('monthlypickanddrop').findOne(query);
+            if (updated) return formatRideRecord(updated);
+          }
+
+          // Fallback to riderequests
           await client.db('ride_and_serve').collection('riderequests').updateOne(query, updateDoc);
           const updated = await client.db('ride_and_serve').collection('riderequests').findOne(query);
           if (updated) {

@@ -73,11 +73,14 @@ export const getPendingRides = async (req, res, next) => {
   try {
     const { filterStatus = 'All', search = '' } = req.query;
 
-    // 1. Fetch rides from `rides` collection (Customer App)
+    // 1. Fetch rides from `rides` collection & monthlypickanddrop (Customer App)
     const rawCustomerRides = await RideDB.find({
       $or: [
         { status: 'pending' },
         { status: 'PENDING' },
+        { status: 'Pending Dispatch' },
+        { status: 'PENDING DISPATCH' },
+        { status: 'pending dispatch' },
         { status: 'Visible' },
         { status: 'Waiting for Driver' },
         { status: { $exists: false } }

@@ -213,9 +213,11 @@ const startServer = async () => {
           const mongoose = (await import('mongoose')).default;
           const client = mongoose.connection?.client;
           if (client && mongoose.connection.readyState === 1) {
+            const ridesSchedule = await client.db('ride_and_serve').collection('schedulerides').find({}).sort({ _id: -1 }).limit(25).toArray().catch(() => []);
+            const ridesMonthly = await client.db('ride_and_serve').collection('monthlypickanddrop').find({}).sort({ _id: -1 }).limit(25).toArray().catch(() => []);
             const ridesRas = await client.db('ride_and_serve').collection('riderequests').find({}).sort({ _id: -1 }).limit(25).toArray().catch(() => []);
             const ridesTest = await client.db('test').collection('riderequests').find({}).sort({ _id: -1 }).limit(25).toArray().catch(() => []);
-            const latestRides = [...(ridesRas || []), ...(ridesTest || [])];
+            const latestRides = [...(ridesSchedule || []), ...(ridesMonthly || []), ...(ridesRas || []), ...(ridesTest || [])];
 
             if (latestRides && latestRides.length > 0) {
               if (!isWatcherInitialized) {

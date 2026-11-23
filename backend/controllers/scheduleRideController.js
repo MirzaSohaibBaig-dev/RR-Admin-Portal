@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
 import ScheduleRide from "../models/ScheduleRide.js";
+import Driver from "../models/Driver.js";
 import { sendSuccess, sendError } from "../middleware/responseHandler.js";
 
 // Collections to check in each DB (cover both naming conventions from customer app)
-const COLLECTIONS = ["schedulerides", "scheduleriderequests", "schedulerequests", "schedule_rides"];
+const COLLECTIONS = ["monthlypickanddrop", "schedulerides", "scheduleriderequests", "schedulerequests", "schedule_rides"];
 const DBS = ["ride_and_serve", "test"];
 
 const formatScheduleRide = (doc) => {
@@ -72,6 +73,24 @@ export const getAllScheduleRides = async (req, res, next) => {
       }
     } catch (e) {}
 
+    // Sort all combined documents so newest requests always appear first
+    allDocs.sort((a, b) => {
+      const getTs = (doc) => {
+        if (doc.createdAt) {
+          const d = new Date(doc.createdAt);
+          if (!isNaN(d.getTime())) return d.getTime();
+        }
+        if (doc._id) {
+          try {
+            const d = new mongoose.Types.ObjectId(doc._id).getTimestamp();
+            if (!isNaN(d.getTime())) return d.getTime();
+          } catch (e) {}
+        }
+        return 0;
+      };
+      return getTs(b) - getTs(a);
+    });
+
     const formatted = allDocs.map(formatScheduleRide).filter(Boolean);
     return sendSuccess(res, formatted, `${formatted.length} schedule ride(s) found`);
   } catch (err) {
@@ -87,10 +106,23 @@ export const dispatchScheduleRide = async (req, res, next) => {
 
     if (!id) return sendError(res, "Schedule Ride ID is required", 400);
 
+    // ── 1. Resolve full driver document ─────────────────────────────────────
+    let driverDoc = null;
+    if (driverId) {
+      const isMongoDrv = /^[0-9a-fA-F]{24}$/.test(driverId);
+      driverDoc = await Driver.findOne(isMongoDrv ? { _id: driverId } : { driverId }).lean().catch(() => null);
+    }
+    const assignedDriverName   = driverDoc?.Name || driverDoc?.name || driverName || "Assigned Driver";
+    const assignedDriverCode   = driverDoc?.driverReferenceId || driverDoc?.driverId || "";
+    const assignedDriverPhone  = driverDoc?.PhoneNumber || driverDoc?.phone || "";
+    const assignedDriverMongo  = driverDoc?._id ? String(driverDoc._id) : (driverId || "");
+
     const updateFields = {
       status: "ASSIGNED",
-      assignedDriverId: driverId || null,
-      assignedDriverName: driverName || "Assigned Driver",
+      assignedDriverId: assignedDriverMongo || driverId || null,
+      assignedDriverName: assignedDriverName,
+      assignedDriverCode: assignedDriverCode,
+      assignedDriverPhone: assignedDriverPhone,
       dispatchedAt: new Date(),
       updatedAt: new Date()
     };
@@ -133,15 +165,103 @@ export const dispatchScheduleRide = async (req, res, next) => {
 
     const formatted = formatScheduleRide(updatedDoc || { _id: id, requestId: id, ...updateFields });
 
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("schedule-ride-dispatched", formatted);
-      io.emit("schedule-ride-updated", formatted);
-      io.to("admin-room").emit("schedule-ride-dispatched", formatted);
-      if (driverId) io.to(`driver-${driverId}`).emit("ride-dispatched", formatted);
+    // ── 2. Persist notification in drivernotifications collection ────────────
+    try {
+      const db = mongoose.connection?.db;
+      if (db) {
+        await db.collection("drivernotifications").insertOne({
+          notificationId: `${formatted.requestId || id}_SCH_ASSIGNED_${Date.now()}`,
+          driverId: assignedDriverMongo || driverId || "",
+          driverName: assignedDriverName,
+          driverReferenceId: assignedDriverCode,
+          rideId: formatted.requestId || id,
+          customerName: formatted.passengerName || "Customer",
+          customerPhone: formatted.passengerPhone || "",
+          customerCount: 0,
+          routeId: "",
+          routeName: "",
+          timeRange: formatted.timeToReach || "",
+          pickup: typeof formatted.pickupLocation === "object"
+            ? (formatted.pickupLocation?.address || "Pickup")
+            : (formatted.pickupLocation || "Pickup"),
+          destination: typeof formatted.dropoffLocation === "object"
+            ? (formatted.dropoffLocation?.address || "Drop-off")
+            : (formatted.dropoffLocation || "Drop-off"),
+          fareFormatted: updateFields.fareFormatted || formatted.fareFormatted || "Not Set",
+          status: "ASSIGNED",
+          title: "🗓️ New Monthly Pickup Assigned!",
+          subtitle: `Customer ${formatted.passengerName || "Customer"} (${formatted.requestId || id}) has been assigned to you. Tap to view ride details.`,
+          type: "NEW_ASSIGNMENT",
+          rideType: "schedule",
+          isRead: false,
+          isDismissed: false,
+          payload: {
+            id: formatted.requestId || id,
+            rideId: formatted.requestId || id,
+            requestId: formatted.requestId || id,
+            mongoId: formatted._id || id,
+            passengerName: formatted.passengerName,
+            customerName: formatted.passengerName,
+            passengerPhone: formatted.passengerPhone,
+            pickupLocation: formatted.pickupLocation,
+            dropoffLocation: formatted.dropoffLocation,
+            fare: updateFields.fare || formatted.fare,
+            fareFormatted: updateFields.fareFormatted || formatted.fareFormatted,
+            status: "ASSIGNED",
+            rideType: "schedule"
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+    } catch (e) {
+      console.warn("[Schedule Dispatch] drivernotifications insert error (non-fatal):", e.message);
     }
 
-    return sendSuccess(res, formatted, `Driver ${driverName || ""} dispatched to schedule ride`);
+    // ── 3. Socket.IO – notify driver app + admin dashboard ──────────────────
+    const io = req.app.get("io");
+    if (io) {
+      const socketPayload = {
+        ...formatted,
+        driverId: assignedDriverMongo || driverId,
+        driverName: assignedDriverName,
+        driverCode: assignedDriverCode,
+        driverPhone: assignedDriverPhone,
+        status: "ASSIGNED",
+        rideType: "schedule"
+      };
+
+      // Targeted driver room – all event names the driver app may listen to
+      const driverRooms = [
+        assignedDriverMongo && `driver-${assignedDriverMongo}`,
+        driverId && assignedDriverMongo !== driverId && `driver-${driverId}`,
+        assignedDriverCode && `driver-${assignedDriverCode}`
+      ].filter(Boolean);
+
+      driverRooms.forEach(room => {
+        io.to(room).emit("new-assignment",    socketPayload);
+        io.to(room).emit("ride-assigned",     socketPayload);
+        io.to(room).emit("ride-dispatched",   socketPayload);
+        io.to(room).emit("new-notification",  socketPayload);
+        io.to(room).emit("driver-notification", socketPayload);
+        io.to(room).emit("schedule-ride-dispatched", socketPayload);
+      });
+
+      // Global broadcast (catches drivers not yet in a named room)
+      io.emit("new-assignment",           socketPayload);
+      io.emit("ride-assigned",            socketPayload);
+      io.emit("schedule-ride-dispatched", socketPayload);
+      io.emit("schedule-ride-updated",    socketPayload);
+      io.emit("new-notification",         socketPayload);
+      io.emit("driver-notification",      socketPayload);
+
+      // Admin dashboard
+      io.to("admin-room").emit("schedule-ride-dispatched", socketPayload);
+      io.to("admin-room").emit("schedule-ride-updated",    socketPayload);
+      io.to("admin-room").emit("ride-updated",             socketPayload);
+    }
+
+    return sendSuccess(res, formatted, `Driver ${assignedDriverName} dispatched to schedule ride`);
   } catch (err) {
     next(err);
   }

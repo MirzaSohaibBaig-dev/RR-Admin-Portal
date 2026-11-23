@@ -307,7 +307,7 @@ export const getCustomerRidePreferences = (ride) => {
 
   // 5. Gender Preference: Male Only / Female Only / Both
   let genderPreference = 'Male Only';
-  const rawGender = ride.genderPreference || ride.gender || ride.passenger?.gender || ride.passengerGender || ride.preferences?.genderPreference || customSched.genderPreference || '';
+  const rawGender = ride.genderPreference || customSched.genderPreference || ride.preferences?.genderPreference || ride.gender || ride.passenger?.gender || ride.passengerGender || '';
   const gLower = String(rawGender).toLowerCase();
   if (gLower.includes('female') || gLower === 'f') {
     genderPreference = 'Female Only';
@@ -421,7 +421,7 @@ const RenderPreferenceBadges = ({ ride }) => {
       {/* 4. Seats Count: 1, 2, 3, ya 4 Seats */}
       <span className="pref-badge pref-badge-seats" title={`Seats Count: ${prefs.seatsCount} Seat(s)`}>
         <Users size={11} />
-        <span>{prefs.seatsCount} {prefs.seatsCount === 1 ? 'Seat' : 'Seats'}</span>
+        <span>{prefs.seatsCount} {Number(prefs.seatsCount) === 1 ? 'Seat' : 'Seats'}</span>
       </span>
 
       {/* 5. Gender Preference: Purple / Pink (Male Only / Female Only / Both) */}
@@ -885,7 +885,7 @@ const initialCustomerRides = [
 ];
 
 const LOCAL_STORAGE_ASSIGNMENTS_KEY = 'rr_persistent_assigned_rides';
-const RIDES_CACHE_KEY = 'rr_rides_cache_v7';
+const RIDES_CACHE_KEY = 'rr_rides_cache_v8';
 
 const getStoredAssignments = () => {
   try {
@@ -984,7 +984,7 @@ const RideDispatch = () => {
   const [dispatchingBatchId, setDispatchingBatchId] = useState(null);
   const [rideRequests, setRideRequests] = useState(() => {
     try {
-      ['rr_rides_cache', 'rr_rides_cache_v2', 'rr_rides_cache_v3', 'rr_rides_cache_v4', 'rr_rides_cache_v5', 'rr_rides_cache_v6'].forEach(k => {
+      ['rr_rides_cache', 'rr_rides_cache_v2', 'rr_rides_cache_v3', 'rr_rides_cache_v4', 'rr_rides_cache_v5', 'rr_rides_cache_v6', 'rr_rides_cache_v7'].forEach(k => {
         try { localStorage.removeItem(k); } catch (err) {}
       });
       const cached = localStorage.getItem(RIDES_CACHE_KEY);
@@ -1374,7 +1374,7 @@ const RideDispatch = () => {
       for (const url of endpoints) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
           const res = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
           if (res.ok) {
@@ -1397,7 +1397,7 @@ const RideDispatch = () => {
       // Also fetch assigned rides so Driver Panel stays updated
       let assignedList = [];
       try {
-        const assignedRes = await fetch(`${BACKEND_URL}/api/rides/assigned`, { signal: AbortSignal.timeout(1500) }).catch(() => null);
+        const assignedRes = await fetch(`${BACKEND_URL}/api/rides/assigned`, { signal: AbortSignal.timeout(4000) }).catch(() => null);
         if (assignedRes && assignedRes.ok) {
           const aData = await assignedRes.json();
           assignedList = aData.data?.rides || aData.data || aData.rides || [];
@@ -1420,12 +1420,14 @@ const RideDispatch = () => {
         const uniqueRides = Array.from(idMap.values());
         if (uniqueRides.length > 0) {
           setRideRequests(prev => {
-            // Keep any real-time socket rides in prev that haven't synced to backend GET /api/rides yet
-            const prevPendingNotYetInBackend = prev.filter(pr => {
+            // Keep genuine real-time socket rides received in this session that haven't hit DB yet
+            const liveSocketOnly = prev.filter(pr => {
+              if (!pr._isRealtimeSocket) return false;
               const pKey = String(pr.requestId || pr.id || pr._id || pr.rideId);
               return !idMap.has(pKey);
             });
-            const merged = [...prevPendingNotYetInBackend, ...uniqueRides];
+            // Database rides are the primary source of truth, newest on top
+            const merged = [...liveSocketOnly, ...uniqueRides];
             try {
               localStorage.setItem(RIDES_CACHE_KEY, JSON.stringify(merged));
             } catch (e) {}
@@ -1642,7 +1644,7 @@ const RideDispatch = () => {
     const handleIncomingRide = (incoming) => {
       if (incoming) {
         const raw = incoming.ride || incoming.data || incoming;
-        const norm = normalizeRide(raw) || raw;
+        const norm = { ...(normalizeRide(raw) || raw), _isRealtimeSocket: true };
         
         const reqType = String(norm.requestType || norm.category || norm.rideType || '').trim();
         const reqId = String(norm.requestId || '');
@@ -1925,8 +1927,7 @@ const RideDispatch = () => {
 
     activeSocketsRef.current = sockets;
 
-    // Professional Approach: Socket.IO handles real-time updates.
-    // Slow fallback polling (every 60 seconds) to ensure sync without overloading the server.
+    // Fallback polling (every 10 seconds) to ensure sync with database
     const fallbackTimer = setInterval(() => {
       loadRides();
       loadScheduleRides();
@@ -1934,7 +1935,7 @@ const RideDispatch = () => {
       loadDriverHires();
       loadReplacements();
       fetchDrivers();
-    }, 60000);
+    }, 10000);
 
     return () => {
       activeSocketsRef.current = [];
@@ -2019,7 +2020,7 @@ const RideDispatch = () => {
   
 
   const filteredScheduledRides = useMemo(() => {
-    return scheduledRides.filter(r => {
+    const list = scheduledRides.filter(r => {
       const isAssigned = isRideAssigned(r);
       const s = String(r.status || '').toUpperCase();
       if (scheduleStatusFilter === 'pending') {
@@ -2039,6 +2040,22 @@ const RideDispatch = () => {
       }
 
       return true;
+    });
+
+    return [...list].sort((a, b) => {
+      const getTs = (item) => {
+        if (item.createdAt) {
+          const t = new Date(item.createdAt).getTime();
+          if (!isNaN(t)) return t;
+        }
+        const idStr = String(item.mongoId || item._id || '');
+        if (idStr.length === 24) {
+          const t = parseInt(idStr.substring(0, 8), 16) * 1000;
+          if (!isNaN(t)) return t;
+        }
+        return 0;
+      };
+      return getTs(b) - getTs(a);
     });
   }, [scheduledRides, scheduleSearchQuery, scheduleStatusFilter]);
 
@@ -2133,7 +2150,16 @@ const RideDispatch = () => {
 
   // Handle Selection of a Ride Request for Dispatch
   const handleSelectRide = (ride) => {
-    setSelectedRide(ride);
+    // Tag the ride with its source type so handleDispatch routes correctly
+    let taggedRide = { ...ride };
+    if (activeMainTab === 'schedule-rides' && !taggedRide.isScheduleRide && !taggedRide._type) {
+      taggedRide = { ...taggedRide, isScheduleRide: true, _type: 'schedule' };
+    } else if (activeMainTab === 'travel-requests' && !taggedRide.isTravel && !taggedRide._type) {
+      taggedRide = { ...taggedRide, isTravel: true, _type: 'travel' };
+    } else if (activeMainTab === 'hire-driver' && !taggedRide.isDriverHire && !taggedRide._type) {
+      taggedRide = { ...taggedRide, isDriverHire: true, _type: 'hire' };
+    }
+    setSelectedRide(taggedRide);
     setSearchRoute(ride.pickupLocation || '');
     setViewPassengerModal(null);
     
@@ -2310,6 +2336,52 @@ const RideDispatch = () => {
       } catch (e) {}
       return updated;
     });
+
+    // Optimistic update for Schedule Rides
+    if (currentSelected.isScheduleRide || currentSelected.requestId?.startsWith('SCH-') || currentSelected._type === 'schedule') {
+      setScheduledRides(prev => prev.map(r => {
+        const match = (r.mongoId && mongoId && String(r.mongoId) === String(mongoId)) ||
+                      (r._id && currentSelected._id && String(r._id) === String(currentSelected._id)) ||
+                      (r.requestId && currentSelected.requestId && String(r.requestId) === String(currentSelected.requestId)) ||
+                      (r.id && currentSelected.id && String(r.id) === String(currentSelected.id));
+        if (match) {
+          return {
+            ...r,
+            status: 'ASSIGNED',
+            assignedDriverId: selectedDriver.id,
+            assignedDriverName: selectedDriver.name,
+            assignedDriverPhone: driverPhone,
+            assignedDriverCode: driverCode,
+            fare: finalFareNum,
+            fareFormatted: finalFareFmt
+          };
+        }
+        return r;
+      }));
+    }
+
+    // Optimistic update for Travel Requests
+    if (currentSelected.isTravel || currentSelected.requestId?.startsWith('TT-') || currentSelected._type === 'travel') {
+      setTravelRequests(prev => prev.map(r => {
+        const match = (r.mongoId && mongoId && String(r.mongoId) === String(mongoId)) ||
+                      (r._id && currentSelected._id && String(r._id) === String(currentSelected._id)) ||
+                      (r.requestId && currentSelected.requestId && String(r.requestId) === String(currentSelected.requestId)) ||
+                      (r.id && currentSelected.id && String(r.id) === String(currentSelected.id));
+        if (match) {
+          return {
+            ...r,
+            status: 'ASSIGNED',
+            assignedDriverId: selectedDriver.id,
+            assignedDriverName: selectedDriver.name,
+            assignedDriverPhone: driverPhone,
+            assignedDriverCode: driverCode,
+            fare: finalFareNum,
+            fareFormatted: finalFareFmt
+          };
+        }
+        return r;
+      }));
+    }
 
     // If this is a Driver Hire request, optimistically update driverHireRequests
     if (currentSelected.isDriverHire || currentSelected.requestId?.startsWith('HDR-') || currentSelected._type === 'hire') {
