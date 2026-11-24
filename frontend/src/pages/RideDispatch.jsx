@@ -1651,8 +1651,14 @@ const RideDispatch = () => {
 
         if (reqType === 'Schedule Ride' || reqId.startsWith('SCH-')) {
           setScheduledRides(prev => {
-            if (prev.some(r => r.requestId === norm.requestId || r._id === norm._id)) return prev;
-            return [norm, ...prev];
+            const key = String(norm.mongoId || norm._id || norm.requestId || norm.id);
+            const filtered = prev.filter(r => String(r.mongoId || r._id || r.requestId || r.id) !== key);
+            return [norm, ...filtered];
+          });
+          setRideRequests(prev => {
+            const key = String(norm.mongoId || norm._id || norm.requestId || norm.id);
+            const filtered = prev.filter(r => String(r.mongoId || r._id || r.requestId || r.id) !== key);
+            return [norm, ...filtered];
           });
           return;
         }
@@ -1673,6 +1679,7 @@ const RideDispatch = () => {
           return;
         }
 
+        // Monthly and other incoming rides -> update both rideRequests (Monthly) and scheduledRides (Schedule)
         setRideRequests(prev => {
           const key = String(norm.mongoId || norm._id || norm.requestId || norm.id || norm.rideId);
           const filtered = prev.filter(r => String(r.mongoId || r._id || r.requestId || r.id || r.rideId) !== key);
@@ -1681,6 +1688,12 @@ const RideDispatch = () => {
             localStorage.setItem(RIDES_CACHE_KEY, JSON.stringify(updated));
           } catch (e) {}
           return updated;
+        });
+
+        setScheduledRides(prev => {
+          const key = String(norm.mongoId || norm._id || norm.requestId || norm.id || norm.rideId);
+          const filtered = prev.filter(r => String(r.mongoId || r._id || r.requestId || r.id || r.rideId) !== key);
+          return [norm, ...filtered];
         });
       }
     };
@@ -1954,14 +1967,23 @@ const RideDispatch = () => {
       const isPendingDispatch = s === 'Pending Dispatch' || s.toUpperCase() === 'PENDING DISPATCH' || rawS === 'PENDING DISPATCH' || rawS === 'PENDING' || s.toUpperCase() === 'PENDING' || s === 'Fare Accepted' || s === 'Fare Rejected' || rawS === 'FARE ACCEPTED' || rawS === 'FARE REJECTED';
       return isPendingDispatch && !isRideAssigned(r);
     }).sort((a, b) => {
-      const numA = parseInt(String(a.requestId || a.id || '').replace(/\D/g, ''), 10);
-      const numB = parseInt(String(b.requestId || b.id || '').replace(/\D/g, ''), 10);
-      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
-        return numB - numA;
-      }
-      const dateA = new Date(a.createdAt || a.date || 0).getTime();
-      const dateB = new Date(b.createdAt || b.date || 0).getTime();
-      return dateB - dateA;
+      const getTs = (item) => {
+        if (item.createdAt) {
+          const t = new Date(item.createdAt).getTime();
+          if (!isNaN(t)) return t;
+        }
+        const idStr = String(item.mongoId || item._id || '');
+        if (idStr.length === 24) {
+          const t = parseInt(idStr.substring(0, 8), 16) * 1000;
+          if (!isNaN(t)) return t;
+        }
+        if (item.date) {
+          const t = new Date(item.date).getTime();
+          if (!isNaN(t)) return t;
+        }
+        return 0;
+      };
+      return getTs(b) - getTs(a);
     });
   }, [rides]);
 
@@ -2005,14 +2027,23 @@ const RideDispatch = () => {
 
       return true;
     }).sort((a, b) => {
-      const numA = parseInt(String(a.requestId || a.id || '').replace(/\D/g, ''), 10);
-      const numB = parseInt(String(b.requestId || b.id || '').replace(/\D/g, ''), 10);
-      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
-        return numB - numA;
-      }
-      const dateA = new Date(a.createdAt || a.date || 0).getTime();
-      const dateB = new Date(b.createdAt || b.date || 0).getTime();
-      return dateB - dateA;
+      const getTs = (item) => {
+        if (item.createdAt) {
+          const t = new Date(item.createdAt).getTime();
+          if (!isNaN(t)) return t;
+        }
+        const idStr = String(item.mongoId || item._id || '');
+        if (idStr.length === 24) {
+          const t = parseInt(idStr.substring(0, 8), 16) * 1000;
+          if (!isNaN(t)) return t;
+        }
+        if (item.date) {
+          const t = new Date(item.date).getTime();
+          if (!isNaN(t)) return t;
+        }
+        return 0;
+      };
+      return getTs(b) - getTs(a);
     });
   }, [rides, requestStatusFilter, requestSearchQuery]);
 
@@ -2912,6 +2943,57 @@ const RideDispatch = () => {
   // View 1: Passenger Requests List / Table - "Ride & Serve — Dispatch Console"
   const renderRideRequests = () => (
     <div className="ride-list-container fade-in">
+      {/* Page Header */}
+      <div className="page-header d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h1 className="page-title">Customer Monthly Pick & Drop Requests</h1>
+          <p className="page-subtitle">
+            Live monthly customer ride requests with recurring schedules, driver dispatch, and route pooling.
+          </p>
+        </div>
+        <div className="d-flex align-items-center gap-2">
+          <button 
+            className="secondary-btn d-flex align-items-center gap-2"
+            onClick={() => { setLoading(true); loadRides().finally(()=>setLoading(false)); fetchDrivers(); }}
+            title="Refresh monthly ride requests"
+          >
+            <RefreshCw size={14} className={loading ? 'spin' : ''} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Toolbar: Search + Status Filter */}
+      <div className="schedule-toolbar mb-3">
+        <div className="schedule-search-box">
+          <Search size={16} className="schedule-search-icon" />
+          <input 
+            type="text"
+            placeholder="Search by customer, phone, pickup, dropoff, or REQ ID..."
+            value={requestSearchQuery}
+            onChange={(e) => setRequestSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div className="radio-group toolbar-radios">
+          <button 
+            type="button"
+            className={`radio-btn ${requestStatusFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setRequestStatusFilter('all')}
+          >All ({rides.length})</button>
+          <button 
+            type="button"
+            className={`radio-btn ${requestStatusFilter === 'pending' ? 'active' : ''}`}
+            onClick={() => setRequestStatusFilter('pending')}
+          >Pending Dispatch ({pendingRequestsCount})</button>
+          <button 
+            type="button"
+            className={`radio-btn ${requestStatusFilter === 'assigned' ? 'active' : ''}`}
+            onClick={() => setRequestStatusFilter('assigned')}
+          >Assigned ({assignedRequestsCount})</button>
+        </div>
+      </div>
+
       {loading ? (
         <div className="table-container-card p-5 text-center">
           <Car size={36} className="text-primary spin mb-2" />

@@ -246,12 +246,22 @@ export const getRouteBatches = async (req, res, next) => {
     const client = mongoose.connection?.client;
     const db = client ? client.db('ride_and_serve') : null;
 
-    // 1. Fetch all Rides (both from riderequests and rides collection)
+    // 1. Fetch all Rides (from riderequests, monthlypickanddrop, schedulerides, and rides collection)
     let rawRides = [];
     if (db) {
+      const dbMonthly = await db.collection('monthlypickanddrop').find({}).sort({ createdAt: -1 }).toArray().catch(() => []);
+      const dbSchedule = await db.collection('schedulerides').find({}).sort({ createdAt: -1 }).toArray().catch(() => []);
       const dbRides = await db.collection('riderequests').find({}).sort({ createdAt: -1 }).toArray().catch(() => []);
       const dbRides2 = await db.collection('rides').find({}).sort({ createdAt: -1 }).toArray().catch(() => []);
-      rawRides = [...dbRides, ...dbRides2];
+      
+      const seenMap = new Map();
+      [...dbMonthly, ...dbSchedule, ...dbRides, ...dbRides2].forEach(r => {
+        const key = String(r.requestId || r._id || r.id);
+        if (!seenMap.has(key)) {
+          seenMap.set(key, r);
+        }
+      });
+      rawRides = Array.from(seenMap.values());
     } else {
       const dbRides = await RideDB.find({}, { createdAt: -1 }, 0, 100);
       const dbReqs = await RequestDB.find({}, { createdAt: -1 }, 0, 100);
@@ -534,6 +544,8 @@ export const dispatchRouteBatch = async (req, res, next) => {
 
       if (db) {
         await db.collection('riderequests').updateMany(queryFilter, { $set: updatePayload });
+        await db.collection('monthlypickanddrop').updateMany(queryFilter, { $set: updatePayload });
+        await db.collection('schedulerides').updateMany(queryFilter, { $set: updatePayload });
         await db.collection('rides').updateMany(queryFilter, { $set: updatePayload });
         await db.collection('requests').updateMany(queryFilter, { $set: updatePayload });
 

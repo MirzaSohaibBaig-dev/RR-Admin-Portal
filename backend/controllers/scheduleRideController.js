@@ -12,33 +12,73 @@ const formatScheduleRide = (doc) => {
   const d = doc._doc || doc;
   const idStr = String(d._id || "");
   const fareNum = Number(d.fare || d.fareAmount || 0);
+  const custName = d.passengerName || d.customerName || d.name || "Passenger";
+  const custPhone = d.passengerPhone || d.customerPhone || d.phone || "";
+  const custEmail = d.passengerEmail || d.customerEmail || d.email || "";
+  const reqId = d.requestId || d.id || `SCH-${idStr.slice(-4).toUpperCase()}`;
+  const sType = d.scheduleType || (d.customSchedule ? "Customize" : "Mon - Fri");
+  const seats = Number(d.passengersCount ?? d.passengerCount ?? d.seatsNeeded ?? d.customSchedule?.passengersCount ?? 1) || 1;
+  const vType = d.vehicleType || d.seatingArrangement || d.vehiclePreference || d.customSchedule?.vehicleType || "Sedan Executive";
+  const sTypeSelection = d.serviceType || d.vehicleTypeSelection || d.customSchedule?.serviceType || "Separate";
+  const tType = d.tripType || d.customSchedule?.tripType || d.rideType || "One Way";
+  const rType = d.requestType || d.category || (String(reqId).startsWith("REQ-") ? "Monthly Pick & Drop" : "Schedule Ride");
+
   return {
     _id: idStr,
-    id: idStr,
+    id: reqId,
+    requestId: reqId,
     mongoId: idStr,
-    requestId: d.requestId || `SCH-${idStr.slice(-4).toUpperCase()}`,
-    passengerName: d.passengerName || d.customerName || d.name || "Passenger",
-    passengerPhone: d.passengerPhone || d.customerPhone || d.phone || "",
-    passengerEmail: d.passengerEmail || d.customerEmail || d.email || "",
+    displayId: reqId,
+    passengerName: custName,
+    customerName: custName,
+    passengerPhone: custPhone,
+    customerPhone: custPhone,
+    passengerEmail: custEmail,
+    customerEmail: custEmail,
+    passenger: {
+      name: custName,
+      phone: custPhone,
+      email: custEmail,
+      gender: d.genderPreference || d.gender || "Male"
+    },
     pickupLocation: d.pickupLocation || d.pickup || d.from || "",
-    dropoffLocation: d.dropoffLocation || d.dropoff || d.to || "",
-    startingFrom: d.startingFrom || d.startDate || "",
-    timeToReach: d.timeToReach || d.time || "",
-    timeToLeave: d.timeToLeave || "",
+    dropoffLocation: d.dropoffLocation || d.dropLocation || d.dropoff || d.to || "",
+    startingFrom: d.startingFrom || d.startDate || d.date || "",
+    date: d.startingFrom || d.startDate || d.date || "",
+    timeToReach: d.timeToReach || d.time || d.scheduleTime || "08:30 AM",
+    timeToLeave: d.timeToLeave || "05:00 PM",
+    scheduleType: sType,
+    scheduleTime: d.scheduleTime || d.timeToReach || "08:30 AM",
+    selectedDays: d.selectedDays || d.customSchedule?.selectedDays || [],
     rideType: d.rideType || "One Way",
-    vehicleType: d.vehicleType || d.vehiclePreference || "",
+    tripType: tType,
+    vehicleType: vType,
+    vehiclePreference: vType,
+    seatingArrangement: vType,
+    serviceType: sTypeSelection,
+    vehicleTypeSelection: sTypeSelection,
+    passengersCount: seats,
+    seatsNeeded: seats,
     acPreference: d.acPreference || "AC",
-    genderPreference: d.genderPreference || "",
+    acRequired: d.acPreference !== "Non-AC" && d.acRequired !== false,
+    genderPreference: d.genderPreference || "Both",
     fare: fareNum,
     fareFormatted: d.fareFormatted || (fareNum > 0 ? `Rs. ${fareNum.toLocaleString()}` : "Not Set"),
     status: d.status || "Pending Dispatch",
     notes: d.notes || d.additionalNotes || "",
+    additionalNotes: d.notes || d.additionalNotes || "",
     customSchedule: d.customSchedule || null,
+    returnPickupLocation: d.returnPickupLocation || d.customSchedule?.returnPickupLocation || null,
+    returnDropoffLocation: d.returnDropoffLocation || d.customSchedule?.returnDropoffLocation || null,
+    returnDate: d.returnDate || d.customSchedule?.returnDate || null,
+    returnTime: d.returnTime || d.customSchedule?.returnTime || null,
+    requestType: rType,
+    category: rType,
     assignedDriverId: d.assignedDriverId || d.driverId || null,
     assignedDriverName: d.assignedDriverName || d.driverName || null,
     assignedDriverPhone: d.assignedDriverPhone || null,
     dispatchedAt: d.dispatchedAt || null,
-    createdAt: d.createdAt || new Date()
+    createdAt: d.createdAt || (d._id && mongoose.Types.ObjectId.isValid(d._id) ? new mongoose.Types.ObjectId(d._id).getTimestamp() : new Date())
   };
 };
 
