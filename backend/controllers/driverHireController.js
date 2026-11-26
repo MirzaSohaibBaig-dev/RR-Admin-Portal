@@ -182,12 +182,26 @@ export const dispatchDriverHire = async (req, res, next) => {
     const assignedDriverCode = driver?.driverReferenceId || driver?.driverId || driver?.id || `DRV-${String(driver?._id || driverId).slice(-6).toUpperCase()}`;
     const assignedPhone = driver?.PhoneNumber || driver?.phone || driver?.personalInfo?.phone || '';
 
+    const assignedDriverDetails = {
+      driverCode: assignedDriverCode,
+      name: assignedDriverName,
+      phone: assignedPhone,
+      vehicle: driver?.vehicle?.model || driver?.vehicle?.make || 'Dedicated Chauffeur',
+      rating: driver?.rating || 4.9
+    };
+
     const updateFields = {
       status: 'ASSIGNED',
-      assignedDriverId: driver?._id || driverId || null,
+      assignedDriverId: driver?._id ? String(driver._id) : (driverId || null),
+      driverId: driver?._id ? String(driver._id) : (driverId || null),
+      driver: driver?._id || driverId || null,
+      assignedDriver: assignedDriverName,
       assignedDriverName: assignedDriverName,
       assignedDriverPhone: assignedPhone,
       assignedDriverCode: assignedDriverCode,
+      assignedDriverDetails: assignedDriverDetails,
+      fareResponseStatus: 'Accepted',
+      fareStatus: 'Accepted',
       dispatchedAt: new Date(),
       updatedAt: new Date()
     };
@@ -236,17 +250,152 @@ export const dispatchDriverHire = async (req, res, next) => {
       });
     } catch (e) {}
 
+    // ── Insert notifications into drivernotifications & customernotifications ──
+    try {
+      const db = mongoose.connection?.db || client?.db('ride_and_serve');
+      if (db) {
+        // Driver Notification
+        await db.collection('drivernotifications').insertOne({
+          notificationId: `${formatted.requestId || id}_HDR_ASSIGNED_${Date.now()}`,
+          driverId: String(driver?._id || driverId || ''),
+          driverName: assignedDriverName,
+          driverReferenceId: assignedDriverCode,
+          rideId: formatted.requestId || id,
+          customerName: formatted.customerName || formatted.passengerName || 'Customer',
+          customerPhone: formatted.customerPhone || formatted.passengerPhone || '',
+          customerCount: 0,
+          routeId: '',
+          routeName: '',
+          timeRange: `${formatted.timeToReach || '08:30 AM'} - ${formatted.offTime || '05:00 PM'}`,
+          pickup: typeof formatted.pickupLocation === 'object' ? (formatted.pickupLocation?.address || 'Pickup') : (formatted.pickupLocation || 'Pickup'),
+          destination: typeof formatted.dropoffLocation === 'object' ? (formatted.dropoffLocation?.address || 'Drop-off') : (formatted.dropoffLocation || 'Drop-off'),
+          fareFormatted: updateFields.fareFormatted || formatted.fareFormatted || 'Rs. 3,500',
+          status: 'ASSIGNED',
+          title: '👨‍✈️ New Driver Hire Booking Assigned!',
+          subtitle: `Customer ${formatted.customerName || 'Customer'} (${formatted.requestId || id}) has booked you as a driver. Tap to view details.`,
+          type: 'NEW_ASSIGNMENT',
+          rideType: 'hire',
+          isRead: false,
+          isDismissed: false,
+          payload: {
+            id: formatted.requestId || id,
+            rideId: formatted.requestId || id,
+            requestId: formatted.requestId || id,
+            mongoId: String(formatted._id || id),
+            passengerName: formatted.customerName,
+            customerName: formatted.customerName,
+            passengerPhone: formatted.customerPhone,
+            customerPhone: formatted.customerPhone,
+            pickupLocation: formatted.pickupLocation,
+            dropoffLocation: formatted.dropoffLocation,
+            bookingDate: formatted.bookingDate,
+            timeToReach: formatted.timeToReach,
+            offTime: formatted.offTime,
+            fare: updateFields.fare || formatted.fare,
+            fareFormatted: updateFields.fareFormatted || formatted.fareFormatted,
+            status: 'ASSIGNED',
+            rideType: 'hire'
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        // Customer Notification
+        await db.collection('customernotifications').insertOne({
+          notificationId: `NOTIF-HDR-${formatted.requestId || id}-${Date.now()}`,
+          customerId: String(formatted.customerId || formatted.customerPhone || ''),
+          userId: String(formatted.customerId || ''),
+          passengerPhone: formatted.customerPhone || '',
+          customerPhone: formatted.customerPhone || '',
+          passengerName: formatted.customerName || 'Customer',
+          customerName: formatted.customerName || 'Customer',
+          rideId: formatted.requestId || id,
+          requestId: formatted.requestId || id,
+          type: 'DRIVER_ASSIGNED',
+          title: '👨‍✈️ Dedicated Driver Assigned!',
+          subtitle: `Driver ${assignedDriverName} (${assignedPhone}) has been assigned to your driver hire booking.`,
+          message: `Your driver hire request ${formatted.requestId || id} is confirmed with driver ${assignedDriverName}.`,
+          status: 'ASSIGNED',
+          driverDetails: assignedDriverDetails,
+          driverName: assignedDriverName,
+          driverPhone: assignedPhone,
+          driverCode: assignedDriverCode,
+          fareFormatted: updateFields.fareFormatted || formatted.fareFormatted || 'Rs. 3,500',
+          isRead: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        // Update driver availability to 'On Trip'
+        if (driver?._id) {
+          await db.collection('drivers').updateOne(
+            { _id: driver._id },
+            { $set: { availability: 'On Trip', liveStatus: 'On Trip', updatedAt: new Date() } }
+          );
+        }
+
+        // Mirror into riderequests and rides collections so mobile active-rides screens find it
+        const mirrorDoc = {
+          requestId: formatted.requestId || id,
+          rideId: formatted.requestId || id,
+          customerId: formatted.customerId,
+          customerName: formatted.customerName,
+          passengerName: formatted.customerName,
+          customerPhone: formatted.customerPhone,
+          passengerPhone: formatted.customerPhone,
+          pickupLocation: formatted.pickupLocation,
+          dropoffLocation: formatted.dropoffLocation,
+          destination: formatted.dropoffLocation,
+          dropLocation: formatted.dropoffLocation,
+          timeToReach: formatted.timeToReach,
+          timeToLeave: formatted.offTime,
+          offTime: formatted.offTime,
+          bookingDate: formatted.bookingDate,
+          date: formatted.bookingDate,
+          fare: updateFields.fare || formatted.fare,
+          fareFormatted: updateFields.fareFormatted || formatted.fareFormatted,
+          requestType: 'Hire Driver',
+          category: 'Hire Driver',
+          tripType: 'Hire Driver',
+          status: 'ASSIGNED',
+          driver: driver?._id || driverId,
+          driverId: driver?._id || driverId,
+          assignedDriver: assignedDriverName,
+          assignedDriverName: assignedDriverName,
+          assignedDriverPhone: assignedPhone,
+          assignedDriverCode: assignedDriverCode,
+          assignedDriverDetails: assignedDriverDetails,
+          updatedAt: new Date()
+        };
+
+        for (const colName of ['riderequests', 'rides']) {
+          await db.collection(colName).updateOne(
+            { requestId: formatted.requestId || id },
+            { $set: mirrorDoc },
+            { upsert: true }
+          ).catch(() => {});
+        }
+      }
+    } catch (notifErr) {
+      console.warn('[Driver Hire Dispatch] notification/mirror warning:', notifErr.message);
+    }
+
     const io = req.app.get('io');
     if (io) {
       const payload = {
         requestId: formatted.requestId,
         hireId: formatted._id,
         id: formatted.id,
-        driverId: driver?._id || driverId,
+        rideId: formatted.requestId,
+        driverId: driver?._id ? String(driver._id) : driverId,
         driverName: assignedDriverName,
         driverPhone: assignedPhone,
+        driverCode: assignedDriverCode,
+        assignedDriverDetails: assignedDriverDetails,
         customerName: formatted.customerName,
         customerPhone: formatted.customerPhone,
+        passengerName: formatted.customerName,
+        passengerPhone: formatted.customerPhone,
         pickupLocation: formatted.pickupLocation,
         dropoffLocation: formatted.dropoffLocation,
         bookingDate: formatted.bookingDate,
@@ -255,18 +404,47 @@ export const dispatchDriverHire = async (req, res, next) => {
         fare: formatted.fare,
         fareFormatted: formatted.fareFormatted,
         status: 'ASSIGNED',
+        rideType: 'hire',
         hireRequest: formatted
       };
 
+      const driverRooms = [
+        driver?._id && `driver-${driver._id}`,
+        driverId && `driver-${driverId}`,
+        assignedDriverCode && `driver-${assignedDriverCode}`
+      ].filter(Boolean);
+
+      const customerRooms = [
+        formatted.customerId && `customer-${formatted.customerId}`,
+        formatted.customerPhone && `customer-${formatted.customerPhone}`,
+        'customer-room'
+      ].filter(Boolean);
+
+      driverRooms.forEach(room => {
+        io.to(room).emit('new-assignment', payload);
+        io.to(room).emit('ride-assigned', payload);
+        io.to(room).emit('ride-dispatched', payload);
+        io.to(room).emit('new-notification', payload);
+        io.to(room).emit('driver-notification', payload);
+        io.to(room).emit('driver-hire-dispatched', payload);
+        io.to(room).emit('new-driver-hire', payload);
+      });
+
+      customerRooms.forEach(room => {
+        io.to(room).emit('driver-assigned', payload);
+        io.to(room).emit('ride-assigned', payload);
+        io.to(room).emit('new-notification', payload);
+        io.to(room).emit('customer-notification', payload);
+        io.to(room).emit('driver-hire-dispatched', payload);
+      });
+
       io.emit('new-request', payload);
       io.emit('new-assignment', payload);
+      io.emit('ride-assigned', payload);
+      io.emit('ride-dispatched', payload);
+      io.emit('driver-hire-dispatched', payload);
       io.emit('driver-hire-update', payload);
       io.emit('driver-hire-updated', payload);
-      io.emit('ride-dispatched', payload);
-
-      if (driver?._id) io.to(`driver-${driver._id}`).emit('ride-dispatched', payload);
-      if (driverId) io.to(`driver-${driverId}`).emit('ride-dispatched', payload);
-      if (driver?.driverId) io.to(`driver-${driver.driverId}`).emit('ride-dispatched', payload);
       io.to('admin-room').emit('driver-hire-update', payload);
     }
 
